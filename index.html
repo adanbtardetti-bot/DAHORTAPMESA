@@ -1,0 +1,103 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
+
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Da Horta p/ Mesa", layout="wide")
+
+# Estilo para Celular
+st.markdown("""
+    <style>
+    .stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #2E7D32; color: white; font-weight: bold; }
+    .main { background-color: #F5F5F5; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- CONEXÃO COM GOOGLE SHEETS ---
+# Substitua pela URL da sua planilha que você copiou (com acesso "Qualquer pessoa com link")
+URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1r4Sye3c3ZDo-sl_TjJrGiOAPg0Edh544Mpd5CXHoI5M/edit?usp=sharing"
+
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def buscar_dados():
+    return conn.read(spreadsheet=URL_PLANILHA, worksheet="pedidos")
+
+# --- INTERFACE ---
+st.title("🌱 Da Horta p/ Mesa")
+menu = ["🛒 Novo Pedido", "🌱 Colheita", "⚖️ Balança", "📊 Financeiro"]
+choice = st.sidebar.radio("Menu", menu)
+
+# --- TELA 1: NOVO PEDIDO ---
+if choice == "🛒 Novo Pedido":
+    st.header("Novo Pedido")
+    nome = st.text_input("Nome do Cliente")
+    end = st.text_input("Endereço")
+    
+    st.subheader("Produtos")
+    # Exemplo simples de lista (Você pode carregar de outra aba da planilha depois)
+    produtos = {"Alface (un)": 3.50, "Tomate (kg)": 8.00, "Couve (un)": 4.00, "Cenoura (kg)": 5.00}
+    carrinho = []
+    
+    for prod, preco in produtos.items():
+        col1, col2 = st.columns([2, 1])
+        col1.write(f"**{prod}** - R$ {preco:.2f}")
+        qtd = col2.number_input("Qtd", min_value=0, key=prod)
+        if qtd > 0:
+            carrinho.append({"item": prod, "qtd": qtd, "preco": preco})
+
+    obs = st.text_area("Observações")
+    pago = st.checkbox("Já foi pago?")
+
+    if st.button("🚀 Salvar Pedido"):
+        if nome or end:
+            novo_pedido = pd.DataFrame([{
+                "cliente": nome, "endereco": end, "obs": obs, 
+                "pago": "Sim" if pago else "Não", "status": "Pendente", 
+                "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0
+            }])
+            # Aqui enviamos para a planilha
+            try:
+                dados_atuais = buscar_dados()
+                updated_df = pd.concat([dados_atuais, novo_pedido], ignore_index=True)
+                conn.update(spreadsheet=URL_PLANILHA, data=updated_df, worksheet="pedidos")
+                st.success("Pedido enviado para a Planilha!")
+            except:
+                st.error("Erro ao conectar com a planilha. Verifique o link!")
+        else:
+            st.warning("Preencha o Nome ou o Endereço!")
+
+# --- TELA 2: COLHEITA ---
+elif choice == "🌱 Colheita":
+    st.header("Lista de Colheita")
+    df = buscar_dados()
+    pendentes = df[df['status'] == 'Pendente']
+    if not pendentes.empty:
+        st.write("Consolidado para hoje:")
+        st.dataframe(pendentes[['cliente', 'endereco', 'obs']], use_container_width=True)
+    else:
+        st.info("Nenhum pedido pendente para colheita.")
+
+# --- TELA 3: BALANÇA ---
+elif choice == "⚖️ Balança":
+    st.header("Pesagem e Finalização")
+    df = buscar_dados()
+    pedidos_abertos = df[df['status'] == 'Pendente']
+    
+    for i, row in pedidos_abertos.iterrows():
+        with st.expander(f"Cliente: {row['cliente']}"):
+            valor_balanca = st.number_input("Valor total da Balança (R$)", min_value=0.0, key=f"v_{i}")
+            if st.button("Finalizar Pedido", key=f"btn_{i}"):
+                df.at[i, 'status'] = 'Concluído'
+                df.at[i, 'total'] = valor_balanca
+                conn.update(spreadsheet=URL_PLANILHA, data=df, worksheet="pedidos")
+                st.rerun()
+
+# --- TELA 4: FINANCEIRO ---
+elif choice == "📊 Financeiro":
+    st.header("Resumo Financeiro")
+    df = buscar_dados()
+    concluidos = df[df['status'] == 'Concluído']
+    total_dia = concluidos['total'].sum()
+    st.metric("Total Faturado", f"R$ {total_dia:.2f}")
+    st.dataframe(concluidos)
