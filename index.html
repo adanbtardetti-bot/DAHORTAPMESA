@@ -1,103 +1,165 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
-
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Da Horta p/ Mesa", layout="wide")
-
-# Estilo para Celular
-st.markdown("""
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HortaGestão</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-    .stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #2E7D32; color: white; font-weight: bold; }
-    .main { background-color: #F5F5F5; }
+        body { background-color: #F3F4F6; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .active-tab { color: #2D5A27; border-top: 3px solid #2D5A27; background: #f0fdf4; }
+        .sugestao { border-bottom: 1px solid #eee; padding: 10px; cursor: pointer; }
     </style>
-    """, unsafe_allow_html=True)
+</head>
+<body>
+    <header class="bg-[#2D5A27] text-white p-4 text-center font-bold shadow-md sticky top-0 z-50">DA HORTA À MESA</header>
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
-# Substitua pela URL da sua planilha que você copiou (com acesso "Qualquer pessoa com link")
-URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1r4Sye3c3ZDo-sl_TjJrGiOAPg0Edh544Mpd5CXHoI5M/edit?usp=sharing"
+    <main class="p-4 pb-24">
+        <section id="vendas" class="tab-content active">
+            <h2 class="text-xl font-bold mb-4">Novo Pedido</h2>
+            <div class="bg-white p-4 rounded-xl shadow-sm mb-4">
+                <input type="text" id="cli-nome" oninput="buscarCliente(this.value)" placeholder="Nome do Cliente" class="w-full p-3 border rounded-lg mb-2 outline-none">
+                <div id="lista-sugestoes" class="bg-white shadow-lg rounded-b-lg hidden border"></div>
+                <input type="text" id="cli-end" placeholder="Endereço" class="w-full p-3 border rounded-lg bg-gray-50">
+            </div>
+            <div id="lista-venda" class="space-y-2"></div>
+            <button onclick="salvarPedido()" class="w-full bg-[#2D5A27] text-white font-bold py-4 rounded-xl mt-6">SALVAR PEDIDO</button>
+        </section>
 
-conn = st.connection("gsheets", type=GSheetsConnection)
+        <section id="colheita" class="tab-content">
+            <h2 class="text-xl font-bold mb-4 text-green-800">Total para Colheita</h2>
+            <div id="resumo-colheita" class="space-y-2"></div>
+        </section>
 
-def buscar_dados():
-    return conn.read(spreadsheet=URL_PLANILHA, worksheet="pedidos")
+        <section id="expedicao" class="tab-content">
+            <h2 class="text-xl font-bold mb-4">Balança e Entrega</h2>
+            <div id="lista-pendentes" class="space-y-4"></div>
+        </section>
 
-# --- INTERFACE ---
-st.title("🌱 Da Horta p/ Mesa")
-menu = ["🛒 Novo Pedido", "🌱 Colheita", "⚖️ Balança", "📊 Financeiro"]
-choice = st.sidebar.radio("Menu", menu)
+        <section id="estoque" class="tab-content">
+            <h2 class="text-xl font-bold mb-4">Produtos</h2>
+            <div class="bg-white p-4 rounded-xl mb-4 border">
+                <input type="text" id="prod-nome" placeholder="Nome" class="w-full p-2 border rounded mb-2">
+                <div class="flex gap-2">
+                    <input type="number" id="prod-preco" placeholder="Preço" class="w-1/2 p-2 border rounded">
+                    <select id="prod-tipo" class="w-1/2 p-2 border rounded">
+                        <option value="un">Unidade</option>
+                        <option value="kg">KG</option>
+                    </select>
+                </div>
+                <button onclick="addProduto()" class="w-full bg-green-700 text-white py-2 rounded mt-3">ADICIONAR</button>
+            </div>
+            <div id="lista-estoque" class="space-y-1"></div>
+        </section>
 
-# --- TELA 1: NOVO PEDIDO ---
-if choice == "🛒 Novo Pedido":
-    st.header("Novo Pedido")
-    nome = st.text_input("Nome do Cliente")
-    end = st.text_input("Endereço")
-    
-    st.subheader("Produtos")
-    # Exemplo simples de lista (Você pode carregar de outra aba da planilha depois)
-    produtos = {"Alface (un)": 3.50, "Tomate (kg)": 8.00, "Couve (un)": 4.00, "Cenoura (kg)": 5.00}
-    carrinho = []
-    
-    for prod, preco in produtos.items():
-        col1, col2 = st.columns([2, 1])
-        col1.write(f"**{prod}** - R$ {preco:.2f}")
-        qtd = col2.number_input("Qtd", min_value=0, key=prod)
-        if qtd > 0:
-            carrinho.append({"item": prod, "qtd": qtd, "preco": preco})
+        <section id="financeiro" class="tab-content text-center">
+            <h2 class="text-xl font-bold mb-4">Faturamento</h2>
+            <p id="total-faturado" class="text-4xl font-black text-[#2D5A27]">R$ 0,00</p>
+        </section>
+    </main>
 
-    obs = st.text_area("Observações")
-    pago = st.checkbox("Já foi pago?")
+    <nav class="fixed bottom-0 w-full bg-white border-t flex justify-between text-[10px] font-bold uppercase text-gray-400">
+        <button onclick="showTab('vendas')" class="nav-item flex-1 py-4 active-tab">Vendas</button>
+        <button onclick="showTab('colheita')" class="nav-item flex-1 py-4">Colheita</button>
+        <button onclick="showTab('expedicao')" class="nav-item flex-1 py-4">Balança</button>
+        <button onclick="showTab('estoque')" class="nav-item flex-1 py-4">Produtos</button>
+        <button onclick="showTab('financeiro')" class="nav-item flex-1 py-4">Financeiro</button>
+    </nav>
 
-    if st.button("🚀 Salvar Pedido"):
-        if nome or end:
-            novo_pedido = pd.DataFrame([{
-                "cliente": nome, "endereco": end, "obs": obs, 
-                "pago": "Sim" if pago else "Não", "status": "Pendente", 
-                "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0
-            }])
-            # Aqui enviamos para a planilha
-            try:
-                dados_atuais = buscar_dados()
-                updated_df = pd.concat([dados_atuais, novo_pedido], ignore_index=True)
-                conn.update(spreadsheet=URL_PLANILHA, data=updated_df, worksheet="pedidos")
-                st.success("Pedido enviado para a Planilha!")
-            except:
-                st.error("Erro ao conectar com a planilha. Verifique o link!")
-        else:
-            st.warning("Preencha o Nome ou o Endereço!")
+    <script>
+        let produtos = JSON.parse(localStorage.getItem('h_p')) || [{id:1, nome:'Alface', preco:3.5, tipo:'un'}, {id:2, nome:'Tomate', preco:8.0, tipo:'kg'}];
+        let pedidos = JSON.parse(localStorage.getItem('h_d')) || [];
+        let clientes = JSON.parse(localStorage.getItem('h_c')) || [];
 
-# --- TELA 2: COLHEITA ---
-elif choice == "🌱 Colheita":
-    st.header("Lista de Colheita")
-    df = buscar_dados()
-    pendentes = df[df['status'] == 'Pendente']
-    if not pendentes.empty:
-        st.write("Consolidado para hoje:")
-        st.dataframe(pendentes[['cliente', 'endereco', 'obs']], use_container_width=True)
-    else:
-        st.info("Nenhum pedido pendente para colheita.")
+        function showTab(id) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active-tab'));
+            document.getElementById(id).classList.add('active');
+            event.currentTarget.classList.add('active-tab');
+            renderizar();
+        }
 
-# --- TELA 3: BALANÇA ---
-elif choice == "⚖️ Balança":
-    st.header("Pesagem e Finalização")
-    df = buscar_dados()
-    pedidos_abertos = df[df['status'] == 'Pendente']
-    
-    for i, row in pedidos_abertos.iterrows():
-        with st.expander(f"Cliente: {row['cliente']}"):
-            valor_balanca = st.number_input("Valor total da Balança (R$)", min_value=0.0, key=f"v_{i}")
-            if st.button("Finalizar Pedido", key=f"btn_{i}"):
-                df.at[i, 'status'] = 'Concluído'
-                df.at[i, 'total'] = valor_balanca
-                conn.update(spreadsheet=URL_PLANILHA, data=df, worksheet="pedidos")
-                st.rerun()
+        function buscarCliente(v) {
+            const l = document.getElementById('lista-sugestoes');
+            const f = clientes.filter(c => c.nome.toLowerCase().includes(v.toLowerCase()));
+            if(v.length > 1 && f.length > 0) {
+                l.classList.remove('hidden');
+                l.innerHTML = f.map(c => `<div class="sugestao" onclick="selCli('${c.nome}','${c.end}')">${c.nome}</div>`).join('');
+            } else { l.classList.add('hidden'); }
+        }
 
-# --- TELA 4: FINANCEIRO ---
-elif choice == "📊 Financeiro":
-    st.header("Resumo Financeiro")
-    df = buscar_dados()
-    concluidos = df[df['status'] == 'Concluído']
-    total_dia = concluidos['total'].sum()
-    st.metric("Total Faturado", f"R$ {total_dia:.2f}")
-    st.dataframe(concluidos)
+        function selCli(n, e) {
+            document.getElementById('cli-nome').value = n;
+            document.getElementById('cli-end').value = e;
+            document.getElementById('lista-sugestoes').classList.add('hidden');
+        }
+
+        function addProduto() {
+            const n = document.getElementById('prod-nome').value;
+            const p = parseFloat(document.getElementById('prod-preco').value);
+            const t = document.getElementById('prod-tipo').value;
+            if(n && p) {
+                produtos.push({id: Date.now(), nome: n, preco: p, tipo: t});
+                localStorage.setItem('h_p', JSON.stringify(produtos));
+                renderizar();
+            }
+        }
+
+        function salvarPedido() {
+            const n = document.getElementById('cli-nome').value;
+            const e = document.getElementById('cli-end').value;
+            let itens = [];
+            produtos.forEach(p => {
+                let q = parseInt(document.getElementById('q-'+p.id).innerText);
+                if(q > 0) itens.push({...p, qtd: q, valorFinal: p.tipo === 'un' ? (p.preco * q) : 0});
+            });
+            if((n||e) && itens.length > 0) {
+                if(!clientes.find(c=>c.nome===n)) { clientes.push({nome:n, end:e}); localStorage.setItem('h_c', JSON.stringify(clientes)); }
+                pedidos.push({id: Date.now(), cliente: n, endereco: e, itens, status: 'pendente'});
+                localStorage.setItem('h_d', JSON.stringify(pedidos));
+                alert("Pedido Salvo!");
+                location.reload();
+            }
+        }
+
+        function renderizar() {
+            document.getElementById('lista-venda').innerHTML = produtos.map(p => `
+                <div class="bg-white p-3 rounded-lg flex justify-between items-center shadow-sm border">
+                    <div><b>${p.nome}</b><br><small>R$ ${p.preco.toFixed(2)}</small></div>
+                    <div class="flex items-center gap-3">
+                        <button onclick="mudarQtd(${p.id},-1)" class="w-8 h-8 bg-gray-200 rounded">-</button>
+                        <b id="q-${p.id}">0</b>
+                        <button onclick="mudarQtd(${p.id},1)" class="w-8 h-8 bg-green-700 text-white rounded">+</button>
+                    </div>
+                </div>
+            `).join('');
+
+            let col = {};
+            pedidos.filter(p=>p.status==='pendente').forEach(p=>p.itens.forEach(i=>col[i.nome]=(col[i.nome]||0)+i.qtd));
+            document.getElementById('resumo-colheita').innerHTML = Object.entries(col).map(([n,t])=>`<div class="bg-white p-3 rounded border-l-4 border-green-600 shadow-sm"><b>${n}</b>: ${t}</div>`).join('');
+
+            document.getElementById('lista-pendentes').innerHTML = pedidos.map((p,idx) => p.status === 'pendente' ? `
+                <div class="bg-white p-4 rounded-xl shadow border">
+                    <div class="font-bold border-b pb-1 mb-2">${p.cliente || 'S/ Nome'}</div>
+                    ${p.itens.map((it,iidx)=> `
+                        <div class="text-sm mb-1">${it.qtd}x ${it.nome} ${it.tipo==='kg'?`<input type="number" placeholder="Valor R$" onchange="setPeso(${idx},${iidx},this.value)" class="w-20 border ml-2">` : ''}</div>
+                    `).join('')}
+                    <button onclick="pedidos[${idx}].status='concluido';localStorage.setItem('h_d',JSON.stringify(pedidos));renderizar()" class="w-full bg-green-600 text-white py-2 rounded mt-2">PRONTO</button>
+                </div>
+            ` : '').join('');
+
+            let total = 0;
+            pedidos.filter(p=>p.status==='concluido').forEach(p=>p.itens.forEach(i=>total+=i.valorFinal));
+            document.getElementById('total-faturado').innerText = `R$ ${total.toFixed(2)}`;
+            
+            document.getElementById('lista-estoque').innerHTML = produtos.map(p=>`<div class="text-sm bg-white p-1 border-b">${p.nome}</div>`).join('');
+        }
+
+        function mudarQtd(id,v){ let e=document.getElementById('q-'+id); let n=parseInt(e.innerText)+v; if(n>=0)e.innerText=n; }
+        function setPeso(pi,ii,v){ pedidos[pi].itens[ii].valorFinal = parseFloat(v)||0; localStorage.setItem('h_d',JSON.stringify(pedidos)); }
+        renderizar();
+    </script>
+</body>
+</html>
