@@ -3,82 +3,205 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HortaGestão</title>
+    <title>DA HORTA À MESA</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #F3F4F6; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         .active-tab { color: #2D5A27; border-top: 3px solid #2D5A27; background: #f0fdf4; }
+        .sugestao-item { border-bottom: 1px solid #eee; padding: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
-    <header class="bg-[#2D5A27] text-white p-4 text-center font-bold shadow-md sticky top-0 z-50">DA HORTA À MESA</header>
+    <header class="bg-[#2D5A27] text-white p-4 text-center font-bold sticky top-0 z-50 shadow">DA HORTA À MESA</header>
 
     <main class="p-4 pb-24">
         <section id="vendas" class="tab-content active">
             <h2 class="text-xl font-bold mb-4">Novo Pedido</h2>
-            <div class="bg-white p-4 rounded-xl shadow-sm mb-4">
-                <input type="text" id="cli-nome" placeholder="Nome do Cliente" class="w-full p-3 border rounded-lg mb-2 outline-none focus:border-green-500">
-                <input type="text" id="cli-end" placeholder="Endereço" class="w-full p-3 border rounded-lg">
+            <div class="bg-white p-4 rounded-xl shadow-sm mb-4 relative">
+                <input type="text" id="cli-nome" oninput="buscarCliente(this.value)" placeholder="Nome do Cliente" class="w-full p-3 border rounded-lg mb-2 outline-none">
+                <div id="sugestoes" class="absolute left-0 right-0 bg-white shadow-xl z-10 hidden border rounded-b-lg mx-4"></div>
+                <input type="text" id="cli-end" placeholder="Endereço / Referência" class="w-full p-3 border rounded-lg">
             </div>
             <div id="lista-venda" class="space-y-2"></div>
             <button onclick="salvarPedido()" class="w-full bg-[#2D5A27] text-white font-bold py-4 rounded-xl mt-6 shadow-lg">SALVAR PEDIDO</button>
         </section>
 
+        <section id="colheita" class="tab-content">
+            <h2 class="text-xl font-bold mb-4 text-green-800">Resumo para Colheita</h2>
+            <div id="resumo-colheita" class="space-y-2"></div>
+        </section>
+
+        <section id="expedicao" class="tab-content">
+            <h2 class="text-xl font-bold mb-4">Pedidos para Montagem</h2>
+            <div id="lista-pendentes" class="space-y-4"></div>
+        </section>
+
         <section id="estoque" class="tab-content">
-            <h2 class="text-xl font-bold mb-4">Cadastrar Produtos</h2>
-            <div class="bg-white p-4 rounded-xl mb-4 border">
-                <input type="text" id="p-nome" placeholder="Ex: Alface" class="w-full p-2 border rounded mb-2">
-                <input type="number" id="p-preco" placeholder="Preço R$" class="w-full p-2 border rounded mb-2">
-                <button onclick="addProd()" class="w-full bg-green-700 text-white font-bold py-2 rounded">ADICIONAR PRODUTO</button>
+            <h2 class="text-xl font-bold mb-4">Gerenciar Produtos</h2>
+            <div class="bg-white p-4 rounded-xl mb-4 border shadow-sm">
+                <input type="text" id="p-nome" placeholder="Nome (Ex: Tomate)" class="w-full p-2 border rounded mb-2">
+                <div class="flex gap-2">
+                    <input type="number" id="p-preco" placeholder="Preço R$" class="w-1/2 p-2 border rounded">
+                    <select id="p-tipo" class="w-1/2 p-2 border rounded text-sm">
+                        <option value="un">Unidade (Maço)</option>
+                        <option value="kg">Balança (Kg)</option>
+                    </select>
+                </div>
+                <button onclick="addProduto()" class="w-full bg-green-700 text-white font-bold py-3 rounded-lg mt-3">ADICIONAR</button>
             </div>
             <div id="lista-estoque" class="space-y-1"></div>
         </section>
+
+        <section id="financeiro" class="tab-content text-center">
+            <h2 class="text-xl font-bold mb-4">Relatório de Vendas</h2>
+            <div class="bg-white p-8 rounded-2xl shadow-inner border-2 border-green-50">
+                <p class="text-gray-400 text-sm font-bold uppercase mb-2">Faturamento Total</p>
+                <p id="total-faturado" class="text-4xl font-black text-[#2D5A27]">R$ 0,00</p>
+            </div>
+        </section>
     </main>
 
-    <nav class="fixed bottom-0 w-full bg-white border-t flex justify-around font-bold uppercase text-gray-400 z-50 shadow-lg">
+    <nav class="fixed bottom-0 w-full bg-white border-t flex justify-between text-[9px] font-bold uppercase text-gray-400 z-50">
         <button onclick="showTab('vendas')" class="nav-item flex-1 py-4 active-tab">Vendas</button>
+        <button onclick="showTab('colheita')" class="nav-item flex-1 py-4">Colheita</button>
+        <button onclick="showTab('expedicao')" class="nav-item flex-1 py-4">Montagem</button>
         <button onclick="showTab('estoque')" class="nav-item flex-1 py-4">Produtos</button>
+        <button onclick="showTab('financeiro')" class="nav-item flex-1 py-4">Relatório</button>
     </nav>
 
     <script>
-        let prods = JSON.parse(localStorage.getItem('h_p')) || [{id:1, nome:'Alface', preco:3.50}];
-        
+        let produtos = JSON.parse(localStorage.getItem('h_p')) || [{id:1, nome:'Alface', preco:3.5, tipo:'un'}];
+        let pedidos = JSON.parse(localStorage.getItem('h_d')) || [];
+        let clientes = JSON.parse(localStorage.getItem('h_c')) || [];
+
         function showTab(id) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active-tab'));
             document.getElementById(id).classList.add('active');
             event.currentTarget.classList.add('active-tab');
-            render();
+            renderizar();
         }
 
-        function addProd() {
+        function buscarCliente(val) {
+            const div = document.getElementById('sugestoes');
+            if(val.length < 2) { div.classList.add('hidden'); return; }
+            const filtro = clientes.filter(c => c.nome.toLowerCase().includes(val.toLowerCase()));
+            if(filtro.length > 0) {
+                div.innerHTML = filtro.map(c => `<div class="sugestao-item" onclick="selecionarCli('${c.nome}','${c.end}')">${c.nome}</div>`).join('');
+                div.classList.remove('hidden');
+            } else { div.classList.add('hidden'); }
+        }
+
+        function selecionarCli(n, e) {
+            document.getElementById('cli-nome').value = n;
+            document.getElementById('cli-end').value = e;
+            document.getElementById('sugestoes').classList.add('hidden');
+        }
+
+        function addProduto() {
             const n = document.getElementById('p-nome').value;
             const p = parseFloat(document.getElementById('p-preco').value);
+            const t = document.getElementById('p-tipo').value;
             if(n && p) {
-                prods.push({id: Date.now(), nome: n, preco: p});
-                localStorage.setItem('h_p', JSON.stringify(prods));
-                render();
+                produtos.push({id: Date.now(), nome: n, preco: p, tipo: t});
+                localStorage.setItem('h_p', JSON.stringify(produtos));
+                renderizar();
             }
         }
 
-        function render() {
-            document.getElementById('lista-venda').innerHTML = prods.map(p => `
-                <div class="bg-white p-3 rounded-lg flex justify-between items-center shadow-sm border">
-                    <b>${p.nome}</b>
-                    <span class="text-green-700 font-bold">R$ ${p.preco.toFixed(2)}</span>
+        function mudarQtd(id, v) {
+            const el = document.getElementById('q-'+id);
+            let n = parseInt(el.innerText) + v;
+            if(n >= 0) el.innerText = n;
+        }
+
+        function salvarPedido() {
+            const n = document.getElementById('cli-nome').value;
+            const e = document.getElementById('cli-end').value;
+            let itens = [];
+            produtos.forEach(p => {
+                let q = parseInt(document.getElementById('q-'+p.id).innerText);
+                if(q > 0) itens.push({...p, qtd: q, totalItem: p.tipo === 'un' ? (p.preco * q) : 0});
+            });
+
+            if(n && itens.length > 0) {
+                if(!clientes.find(c => c.nome === n)) { 
+                    clientes.push({nome: n, end: e}); 
+                    localStorage.setItem('h_c', JSON.stringify(clientes)); 
+                }
+                pedidos.push({id: Date.now(), cliente: n, endereco: e, itens, status: 'pendente'});
+                localStorage.setItem('h_d', JSON.stringify(pedidos));
+                alert("Pedido salvo com sucesso!");
+                location.reload();
+            } else { alert("Preencha o nome e selecione produtos!"); }
+        }
+
+        function concluirPedido(idx) {
+            pedidos[idx].status = 'concluido';
+            localStorage.setItem('h_d', JSON.stringify(pedidos));
+            renderizar();
+        }
+
+        function setValorPeso(pIdx, iIdx, val) {
+            pedidos[pIdx].itens[iIdx].totalItem = parseFloat(val) || 0;
+            localStorage.setItem('h_d', JSON.stringify(pedidos));
+        }
+
+        function renderizar() {
+            // Lista Vendas
+            document.getElementById('lista-venda').innerHTML = produtos.map(p => `
+                <div class="bg-white p-3 rounded-lg flex justify-between items-center border shadow-sm">
+                    <div><b>${p.nome}</b><br><small class="text-gray-400">R$ ${p.preco.toFixed(2)} / ${p.tipo}</small></div>
+                    <div class="flex items-center gap-3">
+                        <button onclick="mudarQtd(${p.id},-1)" class="w-8 h-8 bg-gray-200 rounded font-bold">-</button>
+                        <b id="q-${p.id}">0</b>
+                        <button onclick="mudarQtd(${p.id},1)" class="w-8 h-8 bg-[#2D5A27] text-white rounded font-bold">+</button>
+                    </div>
                 </div>
             `).join('');
-            
-            document.getElementById('lista-estoque').innerHTML = prods.map(p => `
-                <div class="bg-white p-2 border-b text-sm flex justify-between">
-                    <span>${p.nome}</span>
-                    <button onclick="prods=prods.filter(i=>i.id!==${p.id});localStorage.setItem('h_p',JSON.stringify(prods));render();" class="text-red-500">X</button>
+
+            // Resumo Colheita
+            let col = {};
+            pedidos.filter(p=>p.status==='pendente').forEach(p => {
+                p.itens.forEach(i => col[i.nome] = (col[i.nome] || 0) + i.qtd);
+            });
+            document.getElementById('resumo-colheita').innerHTML = Object.entries(col).map(([n,t]) => `
+                <div class="bg-white p-4 rounded-xl flex justify-between border-l-4 border-green-600 shadow-sm">
+                    <span class="font-bold">${n}</span><span class="text-xl font-black text-green-700">${t}</span>
+                </div>
+            `).join('') || '<p class="text-center text-gray-400">Nenhum pedido pendente.</p>';
+
+            // Montagem / Balança
+            document.getElementById('lista-pendentes').innerHTML = pedidos.map((p, pIdx) => p.status === 'pendente' ? `
+                <div class="bg-white p-4 rounded-xl shadow border-t-4 border-green-700">
+                    <div class="font-bold text-lg">${p.cliente}</div>
+                    <div class="text-xs text-gray-400 mb-3">${p.endereco}</div>
+                    ${p.itens.map((it, iIdx) => `
+                        <div class="flex flex-col mb-2 p-2 bg-gray-50 rounded">
+                            <div class="flex justify-between"><span>${it.qtd}x <b>${it.nome}</b></span></div>
+                            ${it.tipo === 'kg' ? `<input type="number" placeholder="Valor Final R$" onchange="setValorPeso(${pIdx},${iIdx},this.value)" class="mt-1 p-2 border rounded text-right bg-yellow-50">` : ''}
+                        </div>
+                    `).join('')}
+                    <button onclick="concluirPedido(${pIdx})" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold mt-2">CONCLUIR</button>
+                </div>
+            ` : '').join('');
+
+            // Financeiro
+            let fat = 0;
+            pedidos.filter(p=>p.status==='concluido').forEach(p => p.itens.forEach(i => fat += i.totalItem));
+            document.getElementById('total-faturado').innerText = `R$ ${fat.toFixed(2)}`;
+
+            // Estoque
+            document.getElementById('lista-estoque').innerHTML = produtos.map(p => `
+                <div class="bg-white p-2 border-b flex justify-between items-center text-sm">
+                    <span>${p.nome} - R$ ${p.preco.toFixed(2)}</span>
+                    <button onclick="produtos=produtos.filter(x=>x.id!==${p.id});localStorage.setItem('h_p',JSON.stringify(produtos));renderizar();" class="text-red-500 font-bold px-2">X</button>
                 </div>
             `).join('');
         }
-        render();
+        renderizar();
     </script>
 </body>
 </html>
