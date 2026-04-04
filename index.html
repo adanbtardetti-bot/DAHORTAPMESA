@@ -1,24 +1,84 @@
-
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DA HORTA À MESA</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HortaGestão</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #F3F4F6; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .active-tab { color: #2D5A27; border-top: 3px solid #2D5A27; background: #f0fdf4; }
+    </style>
 </head>
-<body class="bg-gray-100 font-sans pb-20">
-    <header class="bg-green-800 text-white p-4 text-center font-bold shadow-md">DA HORTA À MESA</header>
-    
-    <div class="p-4" id="app">
-        <h1 class="text-xl font-bold text-green-900 mb-4 text-center">Carregando Ferramenta de Gestão...</h1>
-    </div>
+<body>
+    <header class="bg-[#2D5A27] text-white p-4 text-center font-bold shadow-md sticky top-0 z-50">DA HORTA À MESA</header>
 
-    <nav class="fixed bottom-0 w-full bg-white border-t flex justify-around p-3 text-xs font-bold text-gray-500 shadow-lg">
-        <button onclick="alert('Funciona!')">VENDAS</button>
-        <button>COLHEITA</button>
-        <button>BALANÇA</button>
-        <button>FINANCEIRO</button>
+    <main class="p-4 pb-24">
+        <section id="vendas" class="tab-content active">
+            <h2 class="text-xl font-bold mb-4">Novo Pedido</h2>
+            <div class="bg-white p-4 rounded-xl shadow-sm mb-4">
+                <input type="text" id="cli-nome" placeholder="Nome do Cliente" class="w-full p-3 border rounded-lg mb-2 outline-none focus:border-green-500">
+                <input type="text" id="cli-end" placeholder="Endereço" class="w-full p-3 border rounded-lg">
+            </div>
+            <div id="lista-venda" class="space-y-2"></div>
+            <button onclick="salvarPedido()" class="w-full bg-[#2D5A27] text-white font-bold py-4 rounded-xl mt-6 shadow-lg">SALVAR PEDIDO</button>
+        </section>
+
+        <section id="estoque" class="tab-content">
+            <h2 class="text-xl font-bold mb-4">Cadastrar Produtos</h2>
+            <div class="bg-white p-4 rounded-xl mb-4 border">
+                <input type="text" id="p-nome" placeholder="Ex: Alface" class="w-full p-2 border rounded mb-2">
+                <input type="number" id="p-preco" placeholder="Preço R$" class="w-full p-2 border rounded mb-2">
+                <button onclick="addProd()" class="w-full bg-green-700 text-white font-bold py-2 rounded">ADICIONAR PRODUTO</button>
+            </div>
+            <div id="lista-estoque" class="space-y-1"></div>
+        </section>
+    </main>
+
+    <nav class="fixed bottom-0 w-full bg-white border-t flex justify-around font-bold uppercase text-gray-400 z-50 shadow-lg">
+        <button onclick="showTab('vendas')" class="nav-item flex-1 py-4 active-tab">Vendas</button>
+        <button onclick="showTab('estoque')" class="nav-item flex-1 py-4">Produtos</button>
     </nav>
+
+    <script>
+        let prods = JSON.parse(localStorage.getItem('h_p')) || [{id:1, nome:'Alface', preco:3.50}];
+        
+        function showTab(id) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active-tab'));
+            document.getElementById(id).classList.add('active');
+            event.currentTarget.classList.add('active-tab');
+            render();
+        }
+
+        function addProd() {
+            const n = document.getElementById('p-nome').value;
+            const p = parseFloat(document.getElementById('p-preco').value);
+            if(n && p) {
+                prods.push({id: Date.now(), nome: n, preco: p});
+                localStorage.setItem('h_p', JSON.stringify(prods));
+                render();
+            }
+        }
+
+        function render() {
+            document.getElementById('lista-venda').innerHTML = prods.map(p => `
+                <div class="bg-white p-3 rounded-lg flex justify-between items-center shadow-sm border">
+                    <b>${p.nome}</b>
+                    <span class="text-green-700 font-bold">R$ ${p.preco.toFixed(2)}</span>
+                </div>
+            `).join('');
+            
+            document.getElementById('lista-estoque').innerHTML = prods.map(p => `
+                <div class="bg-white p-2 border-b text-sm flex justify-between">
+                    <span>${p.nome}</span>
+                    <button onclick="prods=prods.filter(i=>i.id!==${p.id});localStorage.setItem('h_p',JSON.stringify(prods));render();" class="text-red-500">X</button>
+                </div>
+            `).join('');
+        }
+        render();
+    </script>
 </body>
 </html>
