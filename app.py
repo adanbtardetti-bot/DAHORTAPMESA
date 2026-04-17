@@ -49,7 +49,7 @@ def disparar_impressao_rawbt(ped):
         st.markdown(f'<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:15px;text-align:center;border-radius:10px;font-weight:bold;font-size:20px;">🖨️ IMPRIMIR ETIQUETA</div></a>', unsafe_allow_html=True)
     except: st.error("Erro nos caracteres.")
 
-# --- TELA: NOVO PEDIDO ---
+# --- TELAS DE OPERAÇÃO (IGUAIS) ---
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
@@ -77,7 +77,6 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_df], ignore_index=True))
                 st.session_state.edit_data = None; st.cache_data.clear(); st.rerun()
 
-# --- TELA: MONTAGEM ---
 elif menu == "Montagem/Expedição":
     st.header("📦 Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
@@ -104,79 +103,16 @@ elif menu == "Montagem/Expedição":
             if c4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
                 conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
 
-# --- TELA: ESTOQUE (LAYOUT OTIMIZADO PARA MUITOS PRODUTOS) ---
+# --- TELA: ESTOQUE (LAYOUT NOVO E LIMPO) ---
 elif menu == "Estoque":
-    st.header("🥦 Gerenciamento de Estoque")
+    st.title("🥦 Controle de Estoque")
     
-    # Resumo no Topo
-    if not df_produtos.empty:
-        total_ativos = len(df_produtos[df_produtos['status'] == 'Ativo'])
-        total_ocultos = len(df_produtos[df_produtos['status'] == 'Inativo'])
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Produtos Ativos", total_ativos)
-        c2.metric("Produtos Ocultos", total_ocultos)
-        c3.write("") # Espaço
-
-    # Cadastro de novos produtos
-    with st.expander("➕ Cadastrar Novo Produto"):
-        with st.form("add_prod"):
-            n = st.text_input("Nome do Produto")
-            col_p1, col_p2 = st.columns(2)
-            p = col_p1.number_input("Preço Unitário", min_value=0.0)
-            t = col_p2.selectbox("Unidade de Medida", ["UN", "KG"])
-            if st.form_submit_button("Salvar Novo Produto"):
-                if n:
-                    nid = int(df_produtos['id'].max()+1) if not df_produtos.empty else 1
-                    new = pd.DataFrame([{"id":nid, "nome":n.upper(), "preco":p, "tipo":t, "status":"Ativo"}])
-                    conn.update(worksheet="Produtos", data=pd.concat([df_produtos, new], ignore_index=True))
-                    st.cache_data.clear(); st.rerun()
-
-    st.divider()
-
-    # Filtro de Busca
-    busca = st.text_input("🔍 Buscar produto pelo nome...", "").upper()
-
-    # Cabeçalho da Tabela
-    h1, h2, h3, h4 = st.columns([3, 1, 1, 1])
-    h1.write("**Produto**")
-    h2.write("**Preço**")
-    h3.write("**Status**")
-    h4.write("**Ações**")
-
-    # Lista de Produtos Filtrada
-    if not df_produtos.empty:
-        df_filtrado = df_produtos[df_produtos['nome'].str.contains(busca)] if busca else df_produtos
-        # Ordena: Ativos primeiro, depois Inativos
-        df_filtrado = df_filtrado.sort_values(by="status")
-
-        for idx, row in df_filtrado.iterrows():
-            with st.container():
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-                
-                # Nome do Produto
-                cor_texto = "black" if row['status'] == 'Ativo' else "gray"
-                col1.markdown(f"<span style='color:{cor_texto}'>{row['nome']} ({row['tipo']})</span>", unsafe_allow_html=True)
-                
-                # Preço
-                col2.write(f"R$ {row['preco']:.2f}")
-                
-                # Status (Ativar/Ocultar)
-                if row['status'] == 'Ativo':
-                    if col3.button("Ocultar", key=f"st_{row['id']}", use_container_width=True):
-                        df_produtos.at[idx, 'status'] = 'Inativo'
-                        conn.update(worksheet="Produtos", data=df_produtos)
-                        st.cache_data.clear(); st.rerun()
-                else:
-                    if col3.button("✅ Ativar", key=f"st_{row['id']}", use_container_width=True):
-                        df_produtos.at[idx, 'status'] = 'Ativo'
-                        conn.update(worksheet="Produtos", data=df_produtos)
-                        st.cache_data.clear(); st.rerun()
-                
-                # Excluir
-                if col4.button("🗑️", key=f"del_{row['id']}", use_container_width=True):
-                    df_produtos = df_produtos.drop(idx)
-                    conn.update(worksheet="Produtos", data=df_produtos)
-                    st.cache_data.clear(); st.rerun()
-            st.divider()
-    else:
-        st.info("Nenhum produto cadastrado.")
+    # Busca e Cadastro na mesma linha superior
+    col_busca, col_add = st.columns([2, 1])
+    busca = col_busca.text_input("🔍 Buscar Produto", "").upper()
+    
+    with col_add.expander("➕ Novo Item"):
+        with st.form("quick_add"):
+            n = st.text_input("Nome")
+            p = st.number_input("Preço", min_value=0.0)
+            t
