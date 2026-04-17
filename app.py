@@ -62,7 +62,7 @@ def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
         st.markdown(f'''<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">🖨️ {label}</div></a>''', unsafe_allow_html=True)
     except: pass
 
-# --- ABA 1, 2, 3 (IGUAIS) ---
+# --- ABAS NOVO, COLHEITA E MONTAGEM (MANTIDAS) ---
 with tab1:
     st.header("🛒 Novo Pedido")
     with st.form("f_venda", clear_on_submit=True):
@@ -116,26 +116,29 @@ with tab3:
                     conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
             except: pass
 
-# --- ABA 4: HISTÓRICO COM CALENDÁRIO ---
+# --- ABA 4: HISTÓRICO (AGORA COM FILTRO DE CALENDÁRIO ATUALIZADO) ---
 with tab4:
     st.header("📅 Histórico")
     
-    # 1. Filtro de Calendário
-    data_selecionada = st.date_input("Selecione o dia que deseja consultar:", datetime.now())
-    data_formatada = data_selecionada.strftime("%d/%m/%Y")
+    # CRIANDO O CALENDÁRIO
+    dia_busca = st.date_input("Filtrar por data:", datetime.now())
+    dia_str = dia_busca.strftime("%d/%m/%Y")
     
-    st.subheader(f"Pedidos de {data_formatada}")
-    
+    st.write(f"### Pedidos de: {dia_str}")
+
     concl = df_pedidos[df_pedidos['status'] == "Concluído"] if not df_pedidos.empty else pd.DataFrame()
     
     if not concl.empty:
-        # Filtra os dados apenas pela data do calendário
-        filtro_dia = concl[concl['data'] == data_formatada]
+        # Garante que a coluna 'data' seja tratada como texto limpo
+        concl['data'] = concl['data'].astype(str).str.strip()
         
-        if filtro_dia.empty:
-            st.info(f"Nenhum pedido concluído em {data_formatada}")
+        # Filtra pela data selecionada no calendário
+        filtro = concl[concl['data'] == dia_str]
+        
+        if filtro.empty:
+            st.warning(f"Nenhum pedido encontrado para o dia {dia_str}")
         else:
-            for idx, ped in filtro_dia.iterrows():
+            for idx, ped in filtro.iterrows():
                 cliente_nome = limpar_nan(ped['cliente'])
                 valor_total = ped['total']
                 pgto_status = limpar_nan(ped['pagamento']).upper()
@@ -161,7 +164,7 @@ with tab4:
                         df_pedidos.at[idx, 'pagamento'] = "A Pagar" if pgto_status == "PAGO" else "Pago"
                         conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
     else:
-        st.info("Nenhum pedido concluído no banco de dados.")
+        st.info("Nenhum pedido concluído no sistema.")
 
 # --- ABA 5: ESTOQUE ---
 with tab5:
