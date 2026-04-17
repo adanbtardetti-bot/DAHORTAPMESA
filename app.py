@@ -3,7 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import json
-import urllib.parse
+import base64
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -24,25 +24,29 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (AJUSTADA PARA NÃO SAIR EM BRANCO) ---
+# --- NOVA FUNÇÃO DE IMPRESSÃO (VIA ARQUIVO DE TEXTO PARA RAWBT) ---
 def disparar_impressao_rawbt(ped):
     status_pg = ped.get('pagamento', 'A Pagar')
-    # Texto formatado com separadores claros para a impressora
-    texto = f"--------------------------------\n"
-    texto += f"      @dahortapmesa 🌱\n"
-    texto += f"--------------------------------\n"
-    texto += f"CLIENTE: {ped['cliente']}\n"
-    texto += f"END: {ped['endereco']}\n"
-    texto += f"--------------------------------\n"
-    texto += f"TOTAL: R$ {float(ped['total']):.2f}\n"
-    texto += f"PGTO: {status_pg}\n"
-    texto += f"--------------------------------\n\n\n"
+    # Formatando o texto de forma bem simples para a térmica
+    texto = (
+        f"--------------------------------\n"
+        f"      @dahortapmesa \n"
+        f"--------------------------------\n"
+        f"CLIENTE: {ped['cliente']}\n"
+        f"END: {ped['endereco']}\n"
+        f"--------------------------------\n"
+        f"TOTAL: R$ {float(ped['total']):.2f}\n"
+        f"PGTO: {status_pg}\n"
+        f"--------------------------------\n\n\n"
+    )
     
-    encoded_text = urllib.parse.quote(texto)
-    # Link direto que o RawBT reconhece melhor
-    rawbt_url = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.text={encoded_text};end;"
+    # Cria um link de download de um arquivo .txt que o RawBT consegue "ler"
+    b64 = base64.b64encode(texto.encode()).decode()
+    filename = f"etiqueta_{ped['id']}.txt"
+    href = f'<a href="data:text/plain;base64,{b64}" download="{filename}"><button style="width:100%; padding:15px; background:#28a745; color:white; border:none; border-radius:10px; font-weight:bold;">🖨️ GERAR ARQUIVO IMPRESSÃO</button></a>'
     
-    st.markdown(f'<a href="{rawbt_url}" target="_blank"><button style="width:100%; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold;">🖨️ IMPRIMIR ETIQUETA</button></a>', unsafe_allow_html=True)
+    st.markdown(href, unsafe_allow_html=True)
+    st.caption("Ao baixar, abra o arquivo com o app RawBT.")
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
@@ -64,9 +68,7 @@ if menu == "Novo Pedido":
             
             qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, value=def_qtd, key=f"p_{p['id']}")
             if qtd > 0:
-                # Subtotal base para referência na montagem
-                sub = (qtd * p['preco']) 
-                itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "preco_unit": p['preco'], "subtotal": sub})
+                itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
         
         if st.form_submit_button("✅ Salvar Pedido"):
             if c and itens_p:
@@ -79,7 +81,7 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
                 st.session_state.edit_data = None
                 st.cache_data.clear()
-                st.success("Pedido enviado para montagem!")
+                st.success("Pedido enviado!")
                 st.rerun()
 
 # --- TELA: MONTAGEM ---
@@ -96,12 +98,9 @@ elif menu == "Montagem/Expedição":
             
             for i, it in enumerate(itens):
                 if it['tipo'] == "KG":
-                    # Exibe o cálculo sugerido (Qtd encomendada x Preço do cadastro)
-                    sugestao = it.get('subtotal', 0)
-                    st.write(f"⚖️ **{it['nome']}** | Sugerido: R$ {sugestao:.2f}")
-                    
-                    # Campo de texto vazio para valor real da balança
-                    v_input = st.text_input(f"Valor Balança R$:", key=f"v_{ped['id']}_{i}", placeholder="Digite o valor...")
+                    st.write(f"⚖️ **{it['nome']}**")
+                    # Campo texto vazio sem valor sugerido
+                    v_input = st.text_input(f"Digite o valor R$:", key=f"v_{ped['id']}_{i}", value="")
                     
                     if v_input:
                         try:
@@ -109,10 +108,9 @@ elif menu == "Montagem/Expedição":
                             it['subtotal'] = v_float
                             t_real += v_float
                         except:
-                            st.error("Digite apenas números")
                             trava_kg = True
                     else:
-                        trava_kg = True # Campo vazio trava o Concluir
+                        trava_kg = True
                 else:
                     st.write(f"✅ {it['nome']} - {it['qtd']} un")
                     t_real += it['subtotal']
