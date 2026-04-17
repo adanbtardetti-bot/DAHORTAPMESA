@@ -31,14 +31,10 @@ def carregar_dados(aba):
 df_produtos = carregar_dados("Produtos")
 df_pedidos = carregar_dados("Pedidos")
 
-# Garante colunas mínimas
 colunas_pedidos = ["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento"]
 for col in colunas_pedidos:
     if col not in df_pedidos.columns:
         df_pedidos[col] = ""
-
-if not df_produtos.empty and 'status' not in df_produtos.columns:
-    df_produtos['status'] = 'Ativo'
 
 if 'edit_data' not in st.session_state:
     st.session_state.edit_data = None
@@ -69,37 +65,39 @@ def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
         st.markdown(f'''<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">🖨️ {label}</div></a>''', unsafe_allow_html=True)
     except: pass
 
-# --- ABAS DE OPERAÇÃO (NOVO, COLHEITA, MONTAGEM) ---
+# --- ABA 1: NOVO ---
 with tab1:
     st.header("🛒 Novo Pedido")
-    with st.form("form_venda", clear_on_submit=True):
-        col_c1, col_c2 = st.columns(2)
-        c = col_c1.text_input("CLIENTE").upper()
-        e = col_c2.text_input("ENDEREÇO").upper()
+    with st.form("f_venda", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        c = c1.text_input("CLIENTE").upper()
+        e = c2.text_input("ENDEREÇO").upper()
         fp = st.checkbox("PAGO")
-        itens_selecionados = []
+        itens_sel = []
         if not df_produtos.empty:
             for _, p in df_produtos[df_produtos['status'] == 'Ativo'].iterrows():
                 qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, key=f"n_{p['id']}")
                 if qtd > 0:
-                    itens_selecionados.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * float(p['preco']))})
+                    itens_sel.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * float(p['preco']))})
         if st.form_submit_button("✅ SALVAR"):
-            if c and itens_selecionados:
+            if c and itens_sel:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty and pd.to_numeric(df_pedidos['id'], errors='coerce').notnull().any() else 1
-                novo_p = pd.DataFrame([{"id": prox_id, "cliente": c, "endereco": e, "itens": json.dumps(itens_selecionados), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "Pago" if fp else "A Pagar"}])
-                conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_p], ignore_index=True)); st.cache_data.clear(); st.rerun()
+                novo = pd.DataFrame([{"id": prox_id, "cliente": c, "endereco": e, "itens": json.dumps(itens_sel), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "Pago" if fp else "A Pagar"}])
+                conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True)); st.cache_data.clear(); st.rerun()
 
+# --- ABA 2: COLHEITA ---
 with tab2:
     st.header("🚜 Colheita")
     pend = df_pedidos[df_pedidos['status'] == "Pendente"] if not df_pedidos.empty else pd.DataFrame()
     if not pend.empty:
         soma = {}
-        for _, ped in pend.iterrows():
+        for _, p in pend.iterrows():
             try:
-                for i in json.loads(ped['itens']): soma[i['nome']] = soma.get(i['nome'], 0) + i['qtd']
+                for i in json.loads(p['itens']): soma[i['nome']] = soma.get(i['nome'], 0) + i['qtd']
             except: pass
         st.table(pd.DataFrame([{"Produto": k, "Qtd": v} for k, v in soma.items()]))
 
+# --- ABA 3: MONTAGEM ---
 with tab3:
     st.header("📦 Montagem")
     pend = df_pedidos[df_pedidos['status'] == "Pendente"] if not df_pedidos.empty else pd.DataFrame()
@@ -123,14 +121,11 @@ with tab3:
                     conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
             except: pass
 
-# --- ABA 4: HISTÓRICO REESTRUTURADO ---
+# --- ABA 4: HISTÓRICO ---
 with tab4:
     st.header("📅 Histórico")
     concl = df_pedidos[df_pedidos['status'] == "Concluído"] if not df_pedidos.empty else pd.DataFrame()
-    if concl.empty:
-        st.info("Nenhum pedido concluído.")
-    else:
-        # Agrupar por data
+    if not concl.empty:
         for data, grupo in concl.groupby('data', sort=False):
             st.markdown(f"#### 📅 {data}")
             for idx, ped in grupo.iterrows():
@@ -139,33 +134,27 @@ with tab4:
                 pgto_status = limpar_nan(ped['pagamento']).upper()
                 
                 with st.expander(f"👤 {cliente_nome} - R$ {valor_total} ({pgto_status})"):
-                    st.write(f"📍 **Endereço:** {limpar_nan(ped['endereco'])}")
-                    st.write("**Itens:**")
-                    
+                    st.write(f"📍 Endereço: {limpar_nan(ped['endereco'])}")
                     try:
                         lista_itens = json.loads(ped['itens'])
-                        texto_recibo = f"*HORTA DA MESA - RECIBO*\n\n*Cliente:* {cliente_nome}\n"
+                        txt_recibo = f"*DA HORTA PRA MESA - RECIBO*\n\n*Cliente:* {cliente_nome}\n"
                         for it in lista_itens:
                             st.write(f"- {it['nome']}: R$ {float(it['subtotal']):.2f}")
-                            texto_recibo += f"• {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
-                        texto_recibo += f"\n*TOTAL: R$ {float(valor_total):.2f}*\n*Status:* {pgto_status}"
-                    except:
-                        st.error("Erro ao ler itens.")
-                        texto_recibo = ""
+                            txt_recibo += f"• {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
+                        txt_recibo += f"\n*TOTAL: R$ {float(valor_total):.2f}*\n*Status:* {pgto_status}"
+                    except: txt_recibo = ""
 
                     st.divider()
-                    # Botões de Ação
                     disparar_impressao_rawbt(ped, "REIMPRIMIR ETIQUETA")
                     
                     c1, c2 = st.columns(2)
                     if c1.button("💳 ALTERAR PGTO", key=f"alt_{ped['id']}", use_container_width=True):
-                        novo = "A Pagar" if pgto_status == "PAGO" else "Pago"
-                        df_pedidos.at[idx, 'pagamento'] = novo
+                        df_pedidos.at[idx, 'pagamento'] = "A Pagar" if pgto_status == "PAGO" else "Pago"
                         conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
                     
-                    if c2.button("📱 RECIBO WHATSAPP", key=f"zap_{ped['id']}", use_container_width=True):
-                        link_zap = f"https://wa.me/?text={urllib.parse.quote(texto_recibo)}"
-                        st.markdown(f'<a href="{link_zap}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:10px;text-align:center;border-radius:5px;font-weight:bold;">ENVIAR NO WHATSAPP</div></a>', unsafe_allow_html=True)
+                    # Botão WhatsApp Direto
+                    url_zap = f"https://wa.me/?text={urllib.parse.quote(txt_recibo)}"
+                    st.markdown(f'''<a href="{url_zap}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;">📱 ENVIAR RECIBO WHATSAPP</div></a>''', unsafe_allow_html=True)
 
 # --- ABA 5: ESTOQUE ---
 with tab5:
