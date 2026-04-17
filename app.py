@@ -9,7 +9,7 @@ from datetime import datetime
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Controle de limpeza do formulário
+# Controle de limpeza do formulário (Garante que limpa após salvar)
 if "form_id" not in st.session_state:
     st.session_state.form_id = 0
 
@@ -26,21 +26,23 @@ def carregar_dados():
 
 df_produtos, df_pedidos = carregar_dados()
 
-# --- FUNÇÃO IMPRIMIR LIMPA (SEM NAN, SEM OBS, COM VALOR CORRETO) ---
+# --- ETIQUETA: MOSTRA APENAS "PAGO" (SE FOR O CASO), NOME, ENDEREÇO E VALOR ---
 def botao_imprimir(ped, valor_real, label="🖨️ IMPRIMIR"):
-    # Limpeza de strings para evitar NaN
     def limpar(txt):
         if pd.isna(txt) or str(txt).lower() == 'nan': return ""
         return str(txt).strip().upper()
 
     nome = limpar(ped.get('cliente', ''))
     endereco = limpar(ped.get('endereco', ''))
+    status_pg = limpar(ped.get('pagamento', ''))
     
-    # Formata o valor que está sendo calculado na tela no momento
+    # Se o status for "PAGO", ele aparece. Se não, não aparece nada de status.
+    txt_pago = f"\n*** {status_pg} ***\n" if "PAGO" in status_pg else "\n"
+    
     valor_formatado = f"{float(valor_real):.2f}".replace('.', ',')
     
-    # ETIQUETA: Apenas Nome, Endereço e Valor (Sem OBS)
-    comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00\n{endereco}\n\n\x1b\x61\x01\x1b\x21\x10TOTAL: RS {valor_formatado}\n\n\n\n"
+    # Comandos RawBT
+    comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00\n{endereco}\n{txt_pago}\n\x1b\x61\x01\x1b\x21\x10TOTAL: RS {valor_formatado}\n\n\n\n"
     b64 = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
     url = f"intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
     
@@ -49,13 +51,13 @@ def botao_imprimir(ped, valor_real, label="🖨️ IMPRIMIR"):
 # 2. ABAS
 tabs = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "📊 FINANCEIRO", "🥦 ESTOQUE"])
 
-# --- NOVO PEDIDO ---
+# --- ABA 1: NOVO PEDIDO (MANTIDA E LIMPANDO) ---
 with tabs[0]:
     fid = st.session_state.form_id
     c1, c2 = st.columns(2)
     n_cli = c1.text_input("NOME DO CLIENTE", key=f"n_{fid}").upper()
     e_cli = c2.text_input("ENDEREÇO", key=f"e_{fid}").upper()
-    o_cli = st.text_area("OBSERVAÇÕES (Aparece na tela, não no papel)", key=f"o_{fid}").upper()
+    o_cli = st.text_area("OBSERVAÇÕES", key=f"o_{fid}").upper()
     p_cli = st.checkbox("PAGO ANTECIPADO", key=f"p_{fid}")
     st.divider()
     
@@ -72,17 +74,30 @@ with tabs[0]:
                 itens_v.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": sub})
                 total_p += sub
     
-    if st.button("✅ SALVAR E LIMPAR TUDO", use_container_width=True):
+    if st.button("✅ SALVAR PEDIDO", use_container_width=True):
         if (n_cli or e_cli) and itens_v:
             ids = pd.to_numeric(df_pedidos['id'], errors='coerce').dropna()
             px_id = int(ids.max() + 1) if not ids.empty else 1
-            novo = pd.DataFrame([{"id": px_id, "cliente": n_cli, "endereco": e_cli, "obs": o_cli, "itens": json.dumps(itens_v), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "Pago" if p_cli else "A Pagar"}])
+            novo = pd.DataFrame([{"id": px_id, "cliente": n_cli, "endereco": e_cli, "obs": o_cli, "itens": json.dumps(itens_v), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "PAGO" if p_cli else "A PAGAR"}])
             conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
-            st.session_state.form_id += 1
-            st.cache_data.clear()
-            st.rerun()
+            st.session_state.form_id += 1; st.cache_data.clear(); st.rerun()
 
-# --- MONTAGEM ---
+# --- ABA 2: COLHEITA (RESTAURADA E CORRIGIDA) ---
+with tabs[1]:
+    st.header("🚜 Lista de Colheita")
+    pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
+    if not pend.empty:
+        resumo = {}
+        for _, r in pend.iterrows():
+            try:
+                for it in json.loads(r['itens']):
+                    resumo[it['nome']] = resumo.get(it['nome'], 0) + it['qtd']
+            except: pass
+        if resumo:
+            st.table(pd.DataFrame([{"Produto": k, "Total": v} for k, v in resumo.items()]))
+    else: st.info("Sem pedidos pendentes.")
+
+# --- ABA 3: MONTAGEM (MANTIDA) ---
 with tabs[2]:
     st.header("📦 Montagem")
     pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
@@ -91,30 +106,37 @@ with tabs[2]:
             m1, m2 = st.columns([3, 1])
             m1.subheader(f"👤 {p['cliente']}")
             m1.write(f"📍 {p['endereco']}")
-            if p['obs'] and str(p['obs']).lower() != 'nan': m1.warning(f"📝 {p['obs']}")
+            if p['obs'] and str(p['obs']).lower() != 'nan': m1.info(f"📝 {p['obs']}")
             
             if m2.button("🗑️ EXCLUIR", key=f"exc_{p['id']}"):
-                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx))
-                st.cache_data.clear(); st.rerun()
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
             
             itens_l = json.loads(p['itens']); t_r = 0.0; trava = False
             for i, it in enumerate(itens_l):
                 if str(it['tipo']).upper() == "KG":
-                    val = st.text_input(f"Valor R$ {it['nome']} ({it['qtd']}kg):", key=f"mt_{p['id']}_{i}")
-                    if val:
-                        v = float(val.replace(',', '.'))
-                        it['subtotal'] = v; t_r += v
+                    val = st.text_input(f"Peso {it['nome']} ({it['qtd']}kg):", key=f"mt_{p['id']}_{i}")
+                    if val: v = float(val.replace(',', '.')); it['subtotal'] = v; t_r += v
                     else: trava = True
                 else:
                     st.write(f"✅ {it['nome']} - {it['qtd']} UN")
                     t_r += float(it['subtotal'])
             
             st.write(f"### Total: R$ {t_r:.2f}")
-            # Botão de imprimir agora recebe o total calculado na hora (t_r)
             botao_imprimir(p, t_r)
-            
             if st.button("✅ FINALIZAR", key=f"fin_{p['id']}", disabled=trava, use_container_width=True):
                 df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_r; df_pedidos.at[idx, 'itens'] = json.dumps(itens_l)
                 conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
 
-# [As abas Colheita, Histórico, Financeiro e Estoque seguem a lógica de carregamento automático]
+# --- ABAS DE CONSULTA (HISTÓRICO, FINANCEIRO, ESTOQUE) ---
+with tabs[3]: # Histórico
+    data_h = st.date_input("Histórico de:", datetime.now()).strftime("%d/%m/%Y")
+    hists = df_pedidos[(df_pedidos['status'] == "Concluído") & (df_pedidos['data'] == data_h)]
+    st.dataframe(hists[['cliente', 'total', 'pagamento']])
+
+with tabs[4]: # Financeiro
+    concl = df_pedidos[df_pedidos['status'] == "Concluído"]
+    st.metric("Faturamento", f"R$ {concl['total'].astype(float).sum():.2f}")
+    st.dataframe(concl[['data', 'cliente', 'total', 'pagamento']])
+
+with tabs[5]: # Estoque
+    st.dataframe(df_produtos)
