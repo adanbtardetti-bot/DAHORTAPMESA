@@ -3,20 +3,20 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import json
 import base64
-import urllib.parse
 from datetime import datetime
 
 # 1. Configuração e Conexão
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# Controle de limpeza do formulário
 if "form_id" not in st.session_state:
     st.session_state.form_id = 0
 
 def carregar_dados():
     try:
-        df_p = conn.read(worksheet="Produtos", ttl=2).dropna(how="all")
-        df_v = conn.read(worksheet="Pedidos", ttl=2).dropna(how="all")
+        df_p = conn.read(worksheet="Produtos", ttl=5).dropna(how="all")
+        df_v = conn.read(worksheet="Pedidos", ttl=5).dropna(how="all")
         df_p.columns = [str(c).lower().strip() for c in df_p.columns]
         df_v.columns = [str(c).lower().strip() for c in df_v.columns]
         for col in ['id', 'cliente', 'endereco', 'obs', 'itens', 'status', 'data', 'total', 'pagamento']:
@@ -26,15 +26,18 @@ def carregar_dados():
 
 df_produtos, df_pedidos = carregar_dados()
 
-# --- ETIQUETA COM ENDEREÇO E OBS (MANTIDA) ---
-def botao_imprimir(ped, label="🖨️ IMPRIMIR"):
+# --- FUNÇÃO IMPRIMIR CORRIGIDA (SEM NAN E COM VALOR REAL) ---
+def botao_imprimir(ped, total_venda, label="🖨️ IMPRIMIR"):
     nome = str(ped.get('cliente', '')).upper()
     endereco = str(ped.get('endereco', '')).upper()
-    obs = str(ped.get('obs', '')).upper()
-    total = f"{float(ped.get('total', 0)):.2f}".replace('.', ',')
+    # Remove o 'nan' das observações
+    obs_raw = ped.get('obs', '')
+    obs = str(obs_raw).upper() if pd.notna(obs_raw) and str(obs_raw).lower() != 'nan' else ""
     
-    # Comandos RawBT com endereço e observação inclusos
-    comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00\n{endereco}\n{obs}\n\x1b\x21\x10TOTAL: RS {total}\n\n\n\n"
+    valor_formatado = f"{float(total_venda):.2f}".replace('.', ',')
+    
+    # Montagem da etiqueta RawBT
+    comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00\n{endereco}\n{obs}\n\n\x1b\x61\x01\x1b\x21\x10TOTAL: RS {valor_formatado}\n\n\n\n"
     b64 = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
     url = f"intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
     
@@ -47,11 +50,12 @@ tabs = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO"
 with tabs[0]:
     fid = st.session_state.form_id
     c1, c2 = st.columns(2)
-    nome = c1.text_input("NOME DO CLIENTE", key=f"n_{fid}").upper()
-    end = c2.text_input("ENDEREÇO", key=f"e_{fid}").upper()
-    obs = st.text_area("OBSERVAÇÕES", key=f"o_{fid}").upper()
-    pago = st.checkbox("PAGO ANTECIPADO", key=f"p_{fid}")
+    nome_cli = c1.text_input("NOME DO CLIENTE", key=f"n_{fid}").upper()
+    end_cli = c2.text_input("ENDEREÇO", key=f"e_{fid}").upper()
+    obs_cli = st.text_area("OBSERVAÇÕES", key=f"o_{fid}").upper()
+    pago_cli = st.checkbox("PAGO ANTECIPADO", key=f"p_{fid}")
     st.divider()
+    
     itens_v = []; total_p = 0.0
     if not df_produtos.empty:
         ativos = df_produtos[df_produtos['status'].astype(str).str.lower() == 'ativo']
@@ -64,59 +68,89 @@ with tabs[0]:
                 sub = 0.0 if str(p['tipo']).upper() == "KG" else (qtd * pr)
                 itens_v.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": sub})
                 total_p += sub
-    st.markdown(f"### 💰 Total: R$ {total_p:.2f}")
+    
+    st.markdown(f"### 💰 Total Prévio: R$ {total_p:.2f}")
     if st.button("✅ SALVAR PEDIDO", use_container_width=True):
-        if (nome or end) and itens_v:
+        if (nome_cli or end_cli) and itens_v:
             ids = pd.to_numeric(df_pedidos['id'], errors='coerce').dropna()
             px_id = int(ids.max() + 1) if not ids.empty else 1
-            novo = pd.DataFrame([{"id": px_id, "cliente": nome, "endereco": end, "obs": obs, "itens": json.dumps(itens_v), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "Pago" if pago else "A Pagar"}])
+            novo = pd.DataFrame([{"id": px_id, "cliente": nome_cli, "endereco": end_cli, "obs": obs_cli, "itens": json.dumps(itens_v), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "Pago" if pago_cli else "A Pagar"}])
             conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
-            st.session_state.form_id += 1; st.cache_data.clear(); st.rerun()
+            st.session_state.form_id += 1
+            st.cache_data.clear()
+            st.rerun()
+
+# --- COLHEITA ---
+with tabs[1]:
+    st.header("🚜 Resumo de Colheita")
+    pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
+    if not pend.empty:
+        res = {}
+        for _, r in pend.iterrows():
+            for it in json.loads(r['itens']):
+                res[it['nome']] = res.get(it['nome'], 0) + it['qtd']
+        st.table(pd.DataFrame([{"Produto": k, "Total": v} for k, v in res.items()]))
+    else: st.info("Nada pendente.")
 
 # --- MONTAGEM ---
 with tabs[2]:
-    st.header("📦 Montagem")
+    st.header("📦 Montagem de Pedidos")
     pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
     for idx, p in pend.iterrows():
         with st.container(border=True):
             m1, m2 = st.columns([3, 1])
             m1.subheader(f"👤 {p['cliente']}")
             m1.write(f"📍 {p['endereco']}")
-            if p['obs']: m1.info(f"📝 {p['obs']}")
+            
             if m2.button("🗑️ EXCLUIR", key=f"exc_{p['id']}"):
-                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx))
+                st.cache_data.clear(); st.rerun()
+            
             itens_l = json.loads(p['itens']); t_r = 0.0; trava = False
             for i, it in enumerate(itens_l):
                 if str(it['tipo']).upper() == "KG":
-                    val = st.text_input(f"R$ {it['nome']}:", key=f"mt_{p['id']}_{i}")
-                    if val: v = float(val.replace(',', '.')); it['subtotal'] = v; t_r += v
+                    val = st.text_input(f"Valor R$ {it['nome']} ({it['qtd']} unidades solicitadas):", key=f"mt_{p['id']}_{i}")
+                    if val:
+                        v = float(val.replace(',', '.'))
+                        it['subtotal'] = v; t_r += v
                     else: trava = True
-                else: st.write(f"- {it['nome']}: {it['qtd']} UN"); t_r += float(it['subtotal'])
-            st.write(f"**Total: R$ {t_r:.2f}**")
-            botao_imprimir(p, "🖨️ IMPRIMIR") # Passa o objeto p completo agora
-            if st.button("✅ FINALIZAR", key=f"fin_{p['id']}", disabled=trava, use_container_width=True):
-                df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_r; df_pedidos.at[idx, 'itens'] = json.dumps(itens_l)
-                conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
+                else:
+                    st.write(f"✅ {it['nome']} - {it['qtd']} UN")
+                    t_r += float(it['subtotal'])
+            
+            st.write(f"### Total Real: R$ {t_r:.2f}")
+            # Aqui passamos o t_r (total real da montagem) para a etiqueta
+            botao_imprimir(p, t_r)
+            
+            if st.button("✅ CONCLUIR PEDIDO", key=f"fin_{p['id']}", disabled=trava, use_container_width=True):
+                df_pedidos.at[idx, 'status'] = "Concluído"
+                df_pedidos.at[idx, 'total'] = t_r
+                df_pedidos.at[idx, 'itens'] = json.dumps(itens_l)
+                conn.update(worksheet="Pedidos", data=df_pedidos)
+                st.cache_data.clear(); st.rerun()
 
 # --- HISTÓRICO ---
 with tabs[3]:
-    st.header("📅 Histórico")
-    data_h = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
-    hists = df_pedidos[(df_pedidos['status'] == "Concluído") & (df_pedidos['data'] == data_h)]
+    st.header("📅 Histórico de Vendas")
+    data_sel = st.date_input("Filtrar Data:", datetime.now()).strftime("%d/%m/%Y")
+    hists = df_pedidos[(df_pedidos['status'] == "Concluído") & (df_pedidos['data'] == data_sel)]
     for idx, p in hists.iterrows():
-        with st.expander(f"{p['cliente']} - R$ {p['total']}"):
-            st.write(f"📍 {p['endereco']}\n📝 {p['obs']}")
-            botao_imprimir(p, "🖨️ REIMPRIMIR")
+        with st.expander(f"🛒 {p['cliente']} - R$ {float(p['total']):.2f}"):
+            st.write(f"Endereço: {p['endereco']}")
+            botao_imprimir(p, p['total'], "🖨️ REIMPRIMIR")
 
 # --- FINANCEIRO ---
 with tabs[4]:
     st.header("📊 Financeiro")
     concl = df_pedidos[df_pedidos['status'] == "Concluído"].copy()
     if not concl.empty:
-        st.metric("Total Faturado", f"R$ {concl['total'].astype(float).sum():.2f}")
+        concl['total'] = concl['total'].astype(float)
+        st.metric("Faturamento Total Concluído", f"R$ {concl['total'].sum():.2f}")
         st.dataframe(concl[['data', 'cliente', 'total', 'pagamento']])
 
 # --- ESTOQUE ---
 with tabs[5]:
-    st.header("🥦 Estoque")
+    st.header("🥦 Gerenciar Produtos")
     st.dataframe(df_produtos)
+    if st.button("🔄 Atualizar Estoque"):
+        st.cache_data.clear(); st.rerun()
