@@ -3,6 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import json
+import base64
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -23,42 +24,44 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO VIA WEB-VIEW (PLANO C) ---
+# --- FUNÇÃO DE IMPRESSÃO (USANDO A LÓGICA QUE FUNCIONOU) ---
 def disparar_impressao_rawbt(ped):
-    status_pg = ped.get('pagamento', 'A Pagar')
+    status_pg = str(ped.get('pagamento', 'A PAGAR')).upper()
+    nome = str(ped['cliente']).upper()
+    endereco = str(ped['endereco']).upper()
+    valor_formatado = f"{float(ped['total']):.2f}".replace('.', ',')
+
+    # COMANDOS ESC/POS (A MÁGICA DO SEU HTML)
+    # \x1b\x61\x01 = Centralizar
+    # \x1b\x21\x38 = Negrito + Fonte Grande
+    # \x1b\x21\x00 = Fonte Normal
+    comandos = (
+        "\x1b\x61\x01" +        # Centralizar
+        nome + "\n" +           # Nome do Cliente
+        endereco + "\n" +       # Endereço
+        "----------------\n" + 
+        "\x1b\x21\x38" +        # Liga Fonte Grande e Negrito
+        "RS " + valor_formatado + "\n" + 
+        "\x1b\x21\x00" +        # Volta ao normal
+        status_pg + "\n" +
+        "\n\n\n"                # Espaço final
+    )
     
-    # Criamos uma mini-página HTML para a etiqueta
-    html_etiqueta = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; width: 280px; margin: 0; padding: 10px; color: black; background-color: white;">
-        <div style="text-align: center; border-bottom: 1px solid black; padding-bottom: 5px;">
-            <b style="font-size: 18px;">DA HORTA P/ MESA</b>
-        </div>
-        <div style="margin: 15px 0; font-size: 22px; font-weight: bold;">
-            {str(ped['cliente']).upper()}
-        </div>
-        <div style="margin-bottom: 15px; font-size: 16px;">
-            {str(ped['endereco']).upper()}
-        </div>
-        <div style="border-top: 1px solid black; padding-top: 5px; display: flex; justify-content: space-between;">
-            <b style="font-size: 18px;">R$ {float(ped['total']):.2f}</b>
-            <b style="font-size: 14px;">{status_pg.upper()}</b>
-        </div>
-        <script>
-            // Comando para abrir o diálogo de impressão assim que carregar
-            window.onload = function() {{
-                window.print();
-                setTimeout(function() {{ window.close(); }}, 500);
-            }};
-        </script>
-    </body>
-    </html>
-    """
+    # Codificação idêntica ao seu script OK
+    b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
+    url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
     
-    # Botão que abre a etiqueta em um frame invisível ou nova aba
-    with st.expander("📄 Gerar Etiqueta"):
-        st.components.v1.html(html_etiqueta, height=350)
-        st.caption("Se a tela de impressão não abrir sozinha, clique com o botão direito e escolha Imprimir.")
+    st.markdown(
+        f"""
+        <a href="{url_rawbt}" style="text-decoration: none;">
+            <div style="background-color: #28a745; color: white; padding: 15px; text-align: center; 
+            border-radius: 10px; font-weight: bold; font-size: 20px;">
+                🖨️ IMPRIMIR AGORA
+            </div>
+        </a>
+        """, 
+        unsafe_allow_html=True
+    )
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
@@ -70,7 +73,6 @@ if menu == "Novo Pedido":
         e = st.text_input("Endereço", value=edit['endereco'] if edit else "")
         pg = st.selectbox("Pagamento", ["A Pagar", "Pago", "Pix", "Dinheiro"])
         
-        st.write("---")
         itens_p = []
         for _, p in df_produtos.iterrows():
             def_qtd = 0
@@ -82,7 +84,7 @@ if menu == "Novo Pedido":
             if qtd > 0:
                 itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
         
-        if st.form_submit_button("✅ Gravar Pedido"):
+        if st.form_submit_button("✅ Salvar Pedido"):
             if c and itens_p:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty else 1
                 novo = pd.DataFrame([{
@@ -126,7 +128,7 @@ elif menu == "Montagem/Expedição":
             
             c1, c2, c3, c4 = st.columns(4)
             
-            if c1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg, type="primary"):
+            if c1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
                 df_pedidos.at[idx, 'status'] = "Concluído"
                 df_pedidos.at[idx, 'total'] = t_real
                 df_pedidos.at[idx, 'itens'] = json.dumps(itens)
@@ -135,7 +137,6 @@ elif menu == "Montagem/Expedição":
                 st.rerun()
 
             with c2:
-                # Agora gera a etiqueta visual que dispara a impressão
                 p_copy = ped.to_dict()
                 p_copy['total'] = t_real
                 disparar_impressao_rawbt(p_copy)
