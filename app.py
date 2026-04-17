@@ -12,6 +12,10 @@ st.set_page_config(page_title="Horta da Mesa", layout="wide")
 # Conexão com Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+def limpar_nan(texto):
+    t = str(texto).replace('nan', '').replace('NaN', '').strip()
+    return t if t else ""
+
 def carregar_dados(aba):
     try:
         df = conn.read(worksheet=aba, ttl=0)
@@ -19,7 +23,6 @@ def carregar_dados(aba):
     except:
         return pd.DataFrame()
 
-# Carga inicial
 df_produtos = carregar_dados("Produtos")
 df_pedidos = carregar_dados("Pedidos")
 
@@ -28,16 +31,16 @@ if not df_produtos.empty and 'status' not in df_produtos.columns:
 if 'edit_data' not in st.session_state:
     st.session_state.edit_data = None
 
-# --- NAVEGAÇÃO POR ABAS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "🥦 ESTOQUE"])
 
-# --- FUNÇÃO DE IMPRESSÃO (ESTILO BOTÃO VERDE) ---
+# --- FUNÇÃO DE IMPRESSÃO SEM NAN ---
 def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
     try:
-        nome = str(ped.get('cliente', '')).strip().upper()
-        endereco = str(ped.get('endereco', '')).strip().upper()
-        pgto = str(ped.get('pagamento', '')).upper()
-        valor_fmt = f"{float(ped['total']):.2f}".replace('.', ',')
+        nome = limpar_nan(ped.get('cliente')).upper()
+        endereco = limpar_nan(ped.get('endereco')).upper()
+        pgto = limpar_nan(ped.get('pagamento')).upper()
+        valor_total = ped.get('total', 0)
+        valor_fmt = f"{float(valor_total):.2f}".replace('.', ',')
         
         comandos = "\x1b\x61\x01" 
         if nome: comandos += "\x1b\x21\x38" + nome + "\n"
@@ -50,7 +53,7 @@ def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
         b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
         url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
         st.markdown(f'''<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">🖨️ {label}</div></a>''', unsafe_allow_html=True)
-    except: st.error("Erro ao formatar impressão.")
+    except: st.error("Erro na etiqueta.")
 
 # --- ABA 1: NOVO PEDIDO ---
 with tab1:
@@ -92,8 +95,7 @@ with tab2:
                     for i in its:
                         n = i['nome']; soma[n] = soma.get(n, 0) + i['qtd']
                 except: pass
-            dados_col = [{"Produto": k, "Qtd": v} for k, v in soma.items()]
-            st.table(pd.DataFrame(dados_col))
+            st.table(pd.DataFrame([{"Produto": k, "Qtd": v} for k, v in soma.items()]))
             txt_w = urllib.parse.quote(f"*COLHEITA {datetime.now().strftime('%d/%m')}*\n" + "\n".join([f"• {k}: {v}" for k, v in soma.items()]))
             st.markdown(f'<a href="https://wa.me/?text={txt_w}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:15px;text-align:center;border-radius:10px;font-weight:bold;">📱 ENVIAR LISTA WHATSAPP</div></a>', unsafe_allow_html=True)
 
@@ -104,7 +106,7 @@ with tab3:
         pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
         for idx, ped in pendentes.iterrows():
             with st.container(border=True):
-                st.subheader(f"👤 {ped['cliente']}")
+                st.subheader(f"👤 {limpar_nan(ped['cliente'])}")
                 itens_lista = json.loads(ped['itens']); t_real = 0.0; trava_kg = False
                 col_i, col_r = st.columns([2, 1])
                 with col_i:
@@ -119,13 +121,12 @@ with tab3:
                 with col_r:
                     st.write(f"Pgto: **{ped['pagamento']}**")
                     st.markdown(f"### Total: R$ {t_real:.2f}")
-                
                 disparar_impressao_rawbt({"cliente":ped['cliente'], "endereco":ped['endereco'], "total":t_real, "pagamento":ped['pagamento']})
                 if st.button("✅ CONCLUIR", key=f"f_{ped['id']}", disabled=trava_kg, use_container_width=True):
                     df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_real; df_pedidos.at[idx, 'itens'] = json.dumps(itens_lista)
                     conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
 
-# --- ABA 4: HISTÓRICO (CORRIGIDA) ---
+# --- ABA 4: HISTÓRICO COM RECIBO VISUAL ---
 with tab4:
     st.header("📅 Histórico")
     if not df_pedidos.empty:
@@ -136,24 +137,43 @@ with tab4:
             for data, grupo in concluidos.groupby('data', sort=False):
                 st.markdown(f"#### 📅 {data}")
                 for idx, ped in grupo.iterrows():
-                    with st.expander(f"👤 {ped['cliente']} - R$ {float(ped['total']):.2f} ({ped['pagamento']})"):
-                        st.write(f"📍 Endereço: {ped['endereco']}")
-                        try:
-                            itens = json.loads(ped['itens'])
-                            for it in itens: st.write(f"- {it['nome']}: R$ {float(it['subtotal']):.2f}")
-                        except: st.write("Erro ao carregar itens.")
+                    nome_c = limpar_nan(ped['cliente'])
+                    valor_c = float(ped['total'])
+                    with st.expander(f"👤 {nome_c} - R$ {valor_c:.2f}"):
+                        # --- MINI RECIBO VISUAL ---
+                        st.markdown(f"""
+                        <div style="border: 2px dashed #ccc; padding: 20px; background-color: #fff; color: #333; font-family: 'Courier New', Courier, monospace; border-radius: 5px;">
+                            <center><h3 style="margin:0;">HORTA DA MESA</h3><p style="margin:0;">Recibo de Venda</p></center>
+                            <hr>
+                            <b>CLIENTE:</b> {nome_c}<br>
+                            <b>ENDEREÇO:</b> {limpar_nan(ped['endereco'])}<br>
+                            <b>DATA:</b> {ped['data']}<br>
+                            <hr>
+                            <table style="width:100%">
+                        """, unsafe_allow_html=True)
+                        itens = json.loads(ped['itens'])
+                        recibo_txt = f"*HORTA DA MESA - RECIBO*\n\n*Cliente:* {nome_c}\n"
+                        for it in itens:
+                            st.markdown(f"<tr><td>{it['nome']}</td><td style='text-align:right'>R$ {float(it['subtotal']):.2f}</td></tr>", unsafe_allow_html=True)
+                            recibo_txt += f"• {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
+                        st.markdown(f"""
+                            </table>
+                            <hr>
+                            <h3 style="text-align:right; margin:0;">TOTAL: R$ {valor_c:.2f}</h3>
+                            <p style="text-align:center; margin-top:10px;"><b>STATUS: {ped['pagamento'].upper()}</b></p>
+                        </div>
+                        """, unsafe_allow_html=True)
                         
-                        st.divider()
+                        st.write("")
                         disparar_impressao_rawbt(ped, "REIMPRIMIR ETIQUETA")
-                        
                         c1, c2 = st.columns(2)
                         if c1.button("💳 ALTERAR PGTO", key=f"pg_{ped['id']}", use_container_width=True):
                             df_pedidos.at[idx, 'pagamento'] = "A Pagar" if ped['pagamento'] == "Pago" else "Pago"
                             conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
                         
-                        rec = f"*RECIBO*\nCliente: {ped['cliente']}\nTotal: R$ {ped['total']:.2f}\nStatus: {ped['pagamento']}"
-                        if c2.button("📝 RECIBO WHATSAPP", key=f"rec_{ped['id']}", use_container_width=True):
-                            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(rec)}" target="_blank">Clique aqui para enviar</a>', unsafe_allow_html=True)
+                        recibo_txt += f"\n*TOTAL: R$ {valor_c:.2f}*\n*Status:* {ped['pagamento'].upper()}"
+                        if c2.button("📱 ENVIAR WHATSAPP", key=f"rec_{ped['id']}", use_container_width=True):
+                            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(recibo_txt)}" target="_blank">Clique para abrir WhatsApp</a>', unsafe_allow_html=True)
 
 # --- ABA 5: ESTOQUE ---
 with tab5:
