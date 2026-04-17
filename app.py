@@ -6,7 +6,7 @@ import base64
 import urllib.parse
 from datetime import datetime
 
-# Configuração da Página
+# Configuração da Página - Forçando o local para Português (se disponível no servidor)
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
 # Conexão com Google Sheets
@@ -79,17 +79,16 @@ with tab1:
         if st.form_submit_button("✅ SALVAR"):
             if c and itens_sel:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty and pd.to_numeric(df_pedidos['id'], errors='coerce').notnull().any() else 1
-                # DATA NO PADRÃO BRASIL
                 data_br = datetime.now().strftime("%d/%m/%Y")
                 novo = pd.DataFrame([{"id": prox_id, "cliente": c, "endereco": e, "itens": json.dumps(itens_sel), "status": "Pendente", "data": data_br, "total": 0.0, "pagamento": "Pago" if fp else "A Pagar"}])
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True)); st.cache_data.clear(); st.rerun()
 
-# --- ABA 4: HISTÓRICO COM CALENDÁRIO BR ---
+# --- ABA 4: HISTÓRICO (CALENDÁRIO DD/MM/YYYY) ---
 with tab4:
     st.header("📅 Histórico")
     
-    # Configuração do calendário para o formato brasileiro
-    dia_busca = st.date_input("Filtrar por data:", datetime.now(), format="DD/MM/YYYY")
+    # Calendário com formato BR no campo de texto
+    dia_busca = st.date_input("Filtrar por data:", value=datetime.now(), format="DD/MM/YYYY")
     dia_str = dia_busca.strftime("%d/%m/%Y")
     
     st.write(f"### Pedidos de: {dia_str}")
@@ -97,9 +96,9 @@ with tab4:
     concl = df_pedidos[df_pedidos['status'] == "Concluído"] if not df_pedidos.empty else pd.DataFrame()
     
     if not concl.empty:
-        # Garante tratamento como texto para comparar com o formato brasileiro
-        concl['data'] = concl['data'].astype(str).str.strip()
-        filtro = concl[concl['data'] == dia_str]
+        # Normalização das datas para garantir que a comparação funcione
+        concl['data_limpa'] = concl['data'].astype(str).str.strip()
+        filtro = concl[concl['data_limpa'] == dia_str]
         
         if filtro.empty:
             st.warning(f"Nenhum pedido encontrado para o dia {dia_str}")
@@ -132,7 +131,7 @@ with tab4:
     else:
         st.info("Nenhum pedido concluído no sistema.")
 
-# --- ABAS COLHEITA, MONTAGEM E ESTOQUE (MANTIDAS) ---
+# --- OUTRAS ABAS (MANTIDAS) ---
 with tab2:
     st.header("🚜 Colheita")
     pend = df_pedidos[df_pedidos['status'] == "Pendente"] if not df_pedidos.empty else pd.DataFrame()
