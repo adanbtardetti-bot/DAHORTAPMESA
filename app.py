@@ -11,9 +11,11 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados(aba):
     try:
+        # TTL=0 para garantir que ele pegue os dados frescos da planilha
         df = conn.read(worksheet=aba, ttl=0)
         return df.dropna(how="all") if df is not None else pd.DataFrame()
-    except:
+    except Exception as e:
+        st.error(f"Erro ao carregar aba {aba}: {e}")
         return pd.DataFrame()
 
 df_produtos = carregar_dados("Produtos")
@@ -24,32 +26,31 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (REGRAS DE STATUS DE PAGAMENTO ATUALIZADAS) ---
+# --- FUNÇÃO DE IMPRESSÃO (REGRA: SÓ PAGO + LAYOUT AJUSTADO) ---
 def disparar_impressao_rawbt(ped):
     nome = str(ped.get('cliente', '')).strip().upper() if pd.notna(ped.get('cliente')) else ""
     endereco = str(ped.get('endereco', '')).strip().upper() if pd.notna(ped.get('endereco')) else ""
     
-    # Se o campo pagamento for "PAGO", imprime. Caso contrário, fica vazio.
+    # Lógica de Pagamento: SÓ aparece se for exatamente "Pago"
     status_raw = str(ped.get('pagamento', '')).strip().upper()
     exibir_pg = "PAGO" if status_raw == "PAGO" else ""
     
     valor_formatado = f"{float(ped['total']):.2f}".replace('.', ',')
 
-    # COMANDOS ESC/POS
+    # COMANDOS ESC/POS (Mágica que funcionou no seu HTML)
     comandos = "\x1b\x61\x01"  # Centralizar
     
-    # Nome e Endereço em FONTE GRANDE (\x1b\x21\x38)
+    # Nome e Endereço em FONTE GRANDE
     if nome:
         comandos += "\x1b\x21\x38" + nome + "\n"
     if endereco:
         comandos += "\x1b\x21\x38" + endereco + "\n"
     
-    comandos += "\x1b\x21\x00" + "----------------\n"
+    comandos += "\x1b\x21\x00" + "----------------\n" # Linha normal
     
     # Valor em FONTE NORMAL
     comandos += "TOTAL: RS " + valor_formatado + "\n"
     
-    # Só imprime se estiver PAGO
     if exibir_pg:
         comandos += exibir_pg + "\n"
         
@@ -81,58 +82,41 @@ if menu == "Novo Pedido":
     with st.form("form_venda", clear_on_submit=True):
         c = st.text_input("Cliente", value=edit['cliente'] if edit else "")
         e = st.text_input("Endereço", value=edit['endereco'] if edit else "")
-        
-        # CAMPO DE PAGAMENTO SIMPLIFICADO
         foi_pago = st.checkbox("Marcar como PAGO", value=(edit['pagamento'] == "Pago") if edit else False)
         
         st.write("---")
         itens_p = []
-        for _, p in df_produtos.iterrows():
-            def_qtd = 0
-            if edit:
-                try:
-                    for oi in json.loads(edit['itens']):
-                        if oi['nome'] == p['nome']: def_qtd = int(oi.get('qtd', 0))
-                except: pass
-            
-            qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, value=def_qtd, key=f"p_{p['id']}")
-            if qtd > 0:
-                itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
+        if not df_produtos.empty:
+            for _, p in df_produtos.iterrows():
+                def_qtd = 0
+                if edit:
+                    try:
+                        for oi in json.loads(edit['itens']):
+                            if oi['nome'] == p['nome']: def_qtd = int(oi.get('qtd', 0))
+                    except: pass
+                
+                qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, value=def_qtd, key=f"p_{p['id']}")
+                if qtd > 0:
+                    itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
         
         if st.form_submit_button("✅ SALVAR PEDIDO"):
             if c and itens_p:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty else 1
-                novo_pgto = "Pago" if foi_pago else "A Pagar"
-                
                 novo_df = pd.DataFrame([{
-                    "id": prox_id,
-                    "cliente": c,
-                    "endereco": e,
-                    "itens": json.dumps(itens_p),
-                    "status": "Pendente",
-                    "data": datetime.now().strftime("%d/%m/%Y"),
-                    "total": 0.0,
-                    "pagamento": novo_pgto
+                    "id": prox_id, "cliente": c, "endereco": e, "itens": json.dumps(itens_p),
+                    "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), 
+                    "total": 0.0, "pagamento": "Pago" if foi_pago else "A Pagar"
                 }])
-                
-                # Salvando na planilha
-                dados_finais = pd.concat([df_pedidos, novo_df], ignore_index=True)
-                conn.update(worksheet="Pedidos", data=dados_finais)
-                
+                conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_df], ignore_index=True))
                 st.session_state.edit_data = None
                 st.cache_data.clear()
-                st.success("Pedido Salvo com Sucesso!")
+                st.success("Pedido Salvo!")
                 st.rerun()
-            else:
-                st.warning("Preencha o cliente e adicione pelo menos um produto.")
 
 # --- TELA: MONTAGEM ---
 elif menu == "Montagem/Expedição":
     st.header("📦 Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
-    
-    if pendentes.empty:
-        st.info("Nenhum pedido pendente.")
     
     for idx, ped in pendentes.iterrows():
         with st.container(border=True):
@@ -159,29 +143,47 @@ elif menu == "Montagem/Expedição":
             st.write(f"**Total: R$ {t_real:.2f}** ({ped['pagamento']})")
             
             c1, c2, c3, c4 = st.columns(4)
-            
             if c1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
-                df_pedidos.at[idx, 'status'] = "Concluído"
-                df_pedidos.at[idx, 'total'] = t_real
+                df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_real
                 df_pedidos.at[idx, 'itens'] = json.dumps(itens)
                 conn.update(worksheet="Pedidos", data=df_pedidos)
-                st.cache_data.clear()
-                st.rerun()
+                st.cache_data.clear(); st.rerun()
 
             with c2:
-                p_copy = ped.to_dict()
-                p_copy['total'] = t_real
+                p_copy = ped.to_dict(); p_copy['total'] = t_real
                 disparar_impressao_rawbt(p_copy)
 
             if c3.button("✏️ Editar", key=f"e_{ped['id']}"):
                 st.session_state.edit_data = ped.to_dict()
-                df_pedidos = df_pedidos.drop(idx)
-                conn.update(worksheet="Pedidos", data=df_pedidos)
-                st.cache_data.clear()
-                st.rerun()
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx))
+                st.cache_data.clear(); st.rerun()
 
             if c4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
-                df_pedidos = df_pedidos.drop(idx)
-                conn.update(worksheet="Pedidos", data=df_pedidos)
-                st.cache_data.clear()
-                st.rerun()
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx))
+                st.cache_data.clear(); st.rerun()
+
+# --- TELA: ESTOQUE (CORRIGIDA) ---
+elif menu == "Estoque":
+    st.header("🥦 Gerenciar Produtos")
+    
+    if not df_produtos.empty:
+        # Exibe a tabela de produtos atual
+        st.dataframe(df_produtos[["id", "nome", "preco", "tipo"]], use_container_width=True, hide_index=True)
+        
+        with st.expander("➕ Adicionar / Editar Produto"):
+            with st.form("form_produto"):
+                nome_p = st.text_input("Nome do Produto")
+                preco_p = st.number_input("Preço", min_value=0.0, format="%.2f")
+                tipo_p = st.selectbox("Tipo", ["UN", "KG"])
+                
+                if st.form_submit_button("Gravar no Estoque"):
+                    if nome_p:
+                        novo_id = int(df_produtos['id'].max() + 1) if not df_produtos.empty else 1
+                        novo_item = pd.DataFrame([{"id": novo_id, "nome": nome_p, "preco": preco_p, "tipo": tipo_p}])
+                        df_atualizado = pd.concat([df_produtos, novo_item], ignore_index=True)
+                        conn.update(worksheet="Produtos", data=df_atualizado)
+                        st.cache_data.clear()
+                        st.success("Estoque Atualizado!")
+                        st.rerun()
+    else:
+        st.warning("Nenhum produto cadastrado na aba 'Produtos'.")
