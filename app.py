@@ -172,4 +172,7 @@ with tab4:
                 st.write(f"R$ {row['preco']} / {row['tipo']}")
                 c_b1, c_b2 = st.columns(2)
                 if c_b1.button("OCULTAR" if row['status'] == 'Ativo' else "ATIVAR", key=f"st_{row['id']}", use_container_width=True):
-                    df_produtos.at[idx, 'status'] =
+                    df_produtos.at[idx, 'status'] = 'Inativo' if row['status'] == 'Ativo' else 'Ativo'
+                    conn.update(worksheet="Produtos", data=df_produtos); st.cache_data.clear(); st.rerun()
+                if c_b2.button("🗑️", key=f"del_{row['id']}", use_container_width=True):
+                    conn.update(worksheet="Produtos", data=df_produtos.drop(idx)); st.cache_data.clear(); st.rerun()
