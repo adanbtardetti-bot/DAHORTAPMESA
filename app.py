@@ -19,7 +19,6 @@ def carregar_dados(aba):
 df_produtos = carregar_dados("Produtos")
 df_pedidos = carregar_dados("Pedidos")
 
-# Garante que a coluna 'status' existe na aba Produtos
 if not df_produtos.empty and 'status' not in df_produtos.columns:
     df_produtos['status'] = 'Ativo'
 
@@ -28,7 +27,7 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (SÓ PAGO + LAYOUT SEU) ---
+# --- FUNÇÃO DE IMPRESSÃO ---
 def disparar_impressao_rawbt(ped):
     nome = str(ped.get('cliente', '')).strip().upper() if pd.notna(ped.get('cliente')) else ""
     endereco = str(ped.get('endereco', '')).strip().upper() if pd.notna(ped.get('endereco')) else ""
@@ -54,17 +53,13 @@ def disparar_impressao_rawbt(ped):
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
-    
     with st.form("form_venda", clear_on_submit=True):
         c = st.text_input("Cliente", value=edit['cliente'] if edit else "")
         e = st.text_input("Endereço", value=edit['endereco'] if edit else "")
         foi_pago = st.checkbox("Marcar como PAGO", value=(edit['pagamento'] == "Pago") if edit else False)
-        
         st.write("---")
         itens_p = []
-        # FILTRO: Só mostra produtos 'Ativos'
         produtos_ativos = df_produtos[df_produtos['status'] == 'Ativo'] if not df_produtos.empty else pd.DataFrame()
-        
         if not produtos_ativos.empty:
             for _, p in produtos_ativos.iterrows():
                 def_qtd = 0
@@ -73,11 +68,8 @@ if menu == "Novo Pedido":
                         for oi in json.loads(edit['itens']):
                             if oi['nome'] == p['nome']: def_qtd = int(oi.get('qtd', 0))
                     except: pass
-                
                 qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, value=def_qtd, key=f"p_{p['id']}")
-                if qtd > 0:
-                    itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
-        
+                if qtd > 0: itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
         if st.form_submit_button("✅ SALVAR PEDIDO"):
             if c and itens_p:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty else 1
@@ -92,8 +84,7 @@ elif menu == "Montagem/Expedição":
     for idx, ped in pendentes.iterrows():
         with st.container(border=True):
             st.subheader(f"👤 {ped['cliente']}")
-            itens = json.loads(ped['itens'])
-            t_real = 0.0; trava_kg = False
+            itens = json.loads(ped['itens']); t_real = 0.0; trava_kg = False
             for i, it in enumerate(itens):
                 if it['tipo'] == "KG":
                     st.write(f"⚖️ **{it['nome']}**")
@@ -102,9 +93,7 @@ elif menu == "Montagem/Expedição":
                         try: t_real += float(v_input.replace(',', '.')); it['subtotal'] = float(v_input.replace(',', '.'))
                         except: trava_kg = True
                     else: trava_kg = True
-                else:
-                    st.write(f"✅ {it['nome']} - {it['qtd']} un"); t_real += it['subtotal']
-            
+                else: st.write(f"✅ {it['nome']} - {it['qtd']} un"); t_real += it['subtotal']
             c1, c2, c3, c4 = st.columns(4)
             if c1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
                 df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_real; df_pedidos.at[idx, 'itens'] = json.dumps(itens)
@@ -115,34 +104,79 @@ elif menu == "Montagem/Expedição":
             if c4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
                 conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
 
-# --- TELA: ESTOQUE (NOVA COM OCULTAR E EXCLUIR) ---
+# --- TELA: ESTOQUE (LAYOUT OTIMIZADO PARA MUITOS PRODUTOS) ---
 elif menu == "Estoque":
-    st.header("🥦 Gerenciar Estoque")
+    st.header("🥦 Gerenciamento de Estoque")
     
+    # Resumo no Topo
+    if not df_produtos.empty:
+        total_ativos = len(df_produtos[df_produtos['status'] == 'Ativo'])
+        total_ocultos = len(df_produtos[df_produtos['status'] == 'Inativo'])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Produtos Ativos", total_ativos)
+        c2.metric("Produtos Ocultos", total_ocultos)
+        c3.write("") # Espaço
+
+    # Cadastro de novos produtos
     with st.expander("➕ Cadastrar Novo Produto"):
         with st.form("add_prod"):
-            n = st.text_input("Nome"); p = st.number_input("Preço", min_value=0.0); t = st.selectbox("Tipo", ["UN", "KG"])
-            if st.form_submit_button("Salvar"):
-                nid = int(df_produtos['id'].max()+1) if not df_produtos.empty else 1
-                new = pd.DataFrame([{"id":nid, "nome":n, "preco":p, "tipo":t, "status":"Ativo"}])
-                conn.update(worksheet="Produtos", data=pd.concat([df_produtos, new], ignore_index=True))
-                st.cache_data.clear(); st.rerun()
+            n = st.text_input("Nome do Produto")
+            col_p1, col_p2 = st.columns(2)
+            p = col_p1.number_input("Preço Unitário", min_value=0.0)
+            t = col_p2.selectbox("Unidade de Medida", ["UN", "KG"])
+            if st.form_submit_button("Salvar Novo Produto"):
+                if n:
+                    nid = int(df_produtos['id'].max()+1) if not df_produtos.empty else 1
+                    new = pd.DataFrame([{"id":nid, "nome":n.upper(), "preco":p, "tipo":t, "status":"Ativo"}])
+                    conn.update(worksheet="Produtos", data=pd.concat([df_produtos, new], ignore_index=True))
+                    st.cache_data.clear(); st.rerun()
 
-    st.write("---")
-    for idx, row in df_produtos.iterrows():
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-        status_cor = "🟢" if row['status'] == 'Ativo' else "🔴"
-        col1.write(f"{status_cor} **{row['nome']}** (R$ {row['preco']})")
-        
-        # Botão Ocultar/Ativar
-        label_btn = "Ocultar" if row['status'] == 'Ativo' else "Ativar"
-        if col2.button(label_btn, key=f"st_{row['id']}"):
-            df_produtos.at[idx, 'status'] = 'Inativo' if row['status'] == 'Ativo' else 'Ativo'
-            conn.update(worksheet="Produtos", data=df_produtos)
-            st.cache_data.clear(); st.rerun()
-            
-        # Botão Excluir
-        if col4.button("🗑️", key=f"del_{row['id']}"):
-            df_produtos = df_produtos.drop(idx)
-            conn.update(worksheet="Produtos", data=df_produtos)
-            st.cache_data.clear(); st.rerun()
+    st.divider()
+
+    # Filtro de Busca
+    busca = st.text_input("🔍 Buscar produto pelo nome...", "").upper()
+
+    # Cabeçalho da Tabela
+    h1, h2, h3, h4 = st.columns([3, 1, 1, 1])
+    h1.write("**Produto**")
+    h2.write("**Preço**")
+    h3.write("**Status**")
+    h4.write("**Ações**")
+
+    # Lista de Produtos Filtrada
+    if not df_produtos.empty:
+        df_filtrado = df_produtos[df_produtos['nome'].str.contains(busca)] if busca else df_produtos
+        # Ordena: Ativos primeiro, depois Inativos
+        df_filtrado = df_filtrado.sort_values(by="status")
+
+        for idx, row in df_filtrado.iterrows():
+            with st.container():
+                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                
+                # Nome do Produto
+                cor_texto = "black" if row['status'] == 'Ativo' else "gray"
+                col1.markdown(f"<span style='color:{cor_texto}'>{row['nome']} ({row['tipo']})</span>", unsafe_allow_html=True)
+                
+                # Preço
+                col2.write(f"R$ {row['preco']:.2f}")
+                
+                # Status (Ativar/Ocultar)
+                if row['status'] == 'Ativo':
+                    if col3.button("Ocultar", key=f"st_{row['id']}", use_container_width=True):
+                        df_produtos.at[idx, 'status'] = 'Inativo'
+                        conn.update(worksheet="Produtos", data=df_produtos)
+                        st.cache_data.clear(); st.rerun()
+                else:
+                    if col3.button("✅ Ativar", key=f"st_{row['id']}", use_container_width=True):
+                        df_produtos.at[idx, 'status'] = 'Ativo'
+                        conn.update(worksheet="Produtos", data=df_produtos)
+                        st.cache_data.clear(); st.rerun()
+                
+                # Excluir
+                if col4.button("🗑️", key=f"del_{row['id']}", use_container_width=True):
+                    df_produtos = df_produtos.drop(idx)
+                    conn.update(worksheet="Produtos", data=df_produtos)
+                    st.cache_data.clear(); st.rerun()
+            st.divider()
+    else:
+        st.info("Nenhum produto cadastrado.")
