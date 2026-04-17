@@ -6,8 +6,21 @@ import base64
 import urllib.parse
 from datetime import datetime
 
-# Configuração da Página
-st.set_page_config(page_title="Horta da Mesa", layout="wide")
+# Configuração da Página - Estilo Dark/Light adaptativo
+st.set_page_config(page_title="Horta da Mesa", layout="wide", initial_sidebar_state="expanded")
+
+# --- ESTILIZAÇÃO CUSTOMIZADA (CSS) ---
+st.markdown("""
+    <style>
+        [data-testid="stSidebar"] {
+            background-color: #f8f9fa;
+        }
+        .st-emotion-cache-16idsys p {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # Conexão com Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -29,37 +42,48 @@ if not df_produtos.empty and 'status' not in df_produtos.columns:
 if 'edit_data' not in st.session_state:
     st.session_state.edit_data = None
 
-# Menu Lateral
-menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Lista de Colheita", "Montagem/Expedição", "Estoque"])
+# --- BARRA LATERAL (MENU MELHORADO) ---
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/1514/1514931.png", width=80) # Ícone de horta
+    st.title("Horta da Mesa")
+    st.subheader("Gestão de Vendas")
+    st.divider()
+    
+    # Menu com Ícones
+    opcoes = {
+        "🛒 Novo Pedido": "Novo Pedido",
+        "🚜 Lista de Colheita": "Lista de Colheita",
+        "📦 Montagem/Expedição": "Montagem/Expedição",
+        "🥦 Gerenciar Estoque": "Estoque"
+    }
+    escolha = st.radio("Escolha uma opção:", list(opcoes.keys()))
+    menu = opcoes[escolha]
+    
+    st.divider()
+    st.info(f"📅 Hoje: {datetime.now().strftime('%d/%m/%Y')}")
 
-# --- FUNÇÃO DE IMPRESSÃO (RESTAURADA E MELHORADA) ---
+# --- FUNÇÃO DE IMPRESSÃO ---
 def disparar_impressao_rawbt(ped):
     nome = str(ped.get('cliente', '')).strip().upper() if pd.notna(ped.get('cliente')) else ""
     endereco = str(ped.get('endereco', '')).strip().upper() if pd.notna(ped.get('endereco')) else ""
     pgto = str(ped.get('pagamento', '')).upper()
     exibir_pg = "PAGO" if pgto == "PAGO" else ""
     valor_formatado = f"{float(ped['total']):.2f}".replace('.', ',')
-
-    comandos = "\x1b\x61\x01" # Centralizar
+    comandos = "\x1b\x61\x01" 
     if nome: comandos += "\x1b\x21\x38" + nome + "\n"
     if endereco: comandos += "\x1b\x21\x38" + endereco + "\n"
     comandos += "\x1b\x21\x00" + "----------------\n"
     comandos += "TOTAL: RS " + valor_formatado + "\n"
     if exibir_pg: comandos += exibir_pg + "\n"
     comandos += "\n\n\n\n"
-    
     try:
         b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
         url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
-        st.markdown(f'''
-            <a href="{url_rawbt}" style="text-decoration: none;">
-                <div style="background-color: #28a745; color: white; padding: 12px; text-align: center; border-radius: 8px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid #218838;">
-                    <span style="font-size: 20px;">🖨️</span> IMPRIMIR ETIQUETA
-                </div>
-            </a>''', unsafe_allow_html=True)
+        st.markdown(f'''<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid #218838;"><span style="font-size:20px;">🖨️</span> IMPRIMIR ETIQUETA</div></a>''', unsafe_allow_html=True)
     except: st.error("Erro na etiqueta.")
 
-# --- TELA: NOVO PEDIDO ---
+# --- LÓGICA DAS TELAS ---
+
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
@@ -88,7 +112,6 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_p], ignore_index=True))
                 st.session_state.edit_data = None; st.cache_data.clear(); st.rerun()
 
-# --- TELA: LISTA DE COLHEITA ---
 elif menu == "Lista de Colheita":
     st.header("🚜 Lista de Colheita")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
@@ -102,19 +125,16 @@ elif menu == "Lista de Colheita":
                 n = i['nome']
                 if n not in soma: soma[n] = {"qtd": 0, "tipo": i['tipo']}
                 soma[n]['qtd'] += i['qtd']
-        
         dados_tabela = []
         texto_whats = f"*LISTA DE COLHEITA - {datetime.now().strftime('%d/%m')}*\n\n"
         for nome, d in soma.items():
             dados_tabela.append({"Produto": nome, "Quantidade": d['qtd'], "Unidade": d['tipo']})
             texto_whats += f"• {nome}: {d['qtd']} {d['tipo']}\n"
-        
         st.table(pd.DataFrame(dados_tabela))
         msg_codificada = urllib.parse.quote(texto_whats)
         link_whats = f"https://wa.me/?text={msg_codificada}"
         st.markdown(f'<a href="{link_whats}" target="_blank" style="text-decoration: none;"><div style="background-color: #25D366; color: white; padding: 15px; text-align: center; border-radius: 10px; font-weight: bold;">📱 Enviar Lista por WhatsApp</div></a>', unsafe_allow_html=True)
 
-# --- TELA: MONTAGEM (CORRIGIDA) ---
 elif menu == "Montagem/Expedição":
     st.header("📦 Central de Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
@@ -125,10 +145,8 @@ elif menu == "Montagem/Expedição":
             st.subheader(f"👤 {ped['cliente']}")
             st.markdown(f"📍 **Endereço:** {ped['endereco'] if ped['endereco'] else '*Não informado*'}")
             st.divider()
-            
             itens_lista = json.loads(ped['itens']); t_real = 0.0; trava_kg = False
             c_itens, c_res = st.columns([2, 1])
-            
             with c_itens:
                 for i, it in enumerate(itens_lista):
                     if it['tipo'] == "KG":
@@ -140,46 +158,15 @@ elif menu == "Montagem/Expedição":
                         else: trava_kg = True
                     else:
                         st.write(f"✅ {it['nome']} - {it['qtd']} UN"); t_real += it['subtotal']
-            
             with c_res:
                 cor_pg = "green" if ped['pagamento'] == "Pago" else "red"
                 st.markdown(f"Status: <b style='color:{cor_pg}'>{ped['pagamento'].upper()}</b>", unsafe_allow_html=True)
                 st.markdown(f"### Total: R$ {t_real:.2f}")
-
             st.write("")
             b1, b2, b3, b4 = st.columns(4)
             if b1.button("✅ CONCLUIR", key=f"f_{ped['id']}", disabled=trava_kg, use_container_width=True):
                 df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_real; df_pedidos.at[idx, 'itens'] = json.dumps(itens_lista)
                 conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
-            
-            with b2: # BOTÃO DE IMPRIMIR VOLTOU AQUI
-                disparar_impressao_rawbt({"cliente":ped['cliente'], "endereco":ped['endereco'], "total":t_real, "pagamento":ped['pagamento']})
-            
+            with b2: disparar_impressao_rawbt({"cliente":ped['cliente'], "endereco":ped['endereco'], "total":t_real, "pagamento":ped['pagamento']})
             if b3.button("✏️ EDITAR", key=f"e_{ped['id']}", use_container_width=True):
                 st.session_state.edit_data = ped.to_dict(); conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
-            if b4.button("🗑️ EXCLUIR", key=f"x_{ped['id']}", use_container_width=True):
-                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
-
-# --- TELA: ESTOQUE ---
-elif menu == "Estoque":
-    st.header("🥦 Estoque")
-    with st.expander("➕ Novo Produto"):
-        with st.form("add_p"):
-            n = st.text_input("Nome"); p = st.number_input("Preço", min_value=0.0); t = st.selectbox("Unidade", ["UN", "KG"])
-            if st.form_submit_button("Salvar"):
-                nid = int(df_produtos['id'].max()+1) if not df_produtos.empty else 1
-                new_it = pd.DataFrame([{"id":nid, "nome":n.upper(), "preco":p, "tipo":t, "status":"Ativo"}])
-                conn.update(worksheet="Produtos", data=pd.concat([df_produtos, new_it], ignore_index=True))
-                st.cache_data.clear(); st.rerun()
-    if not df_produtos.empty:
-        cols = st.columns(3)
-        for i, (idx, row) in enumerate(df_produtos.iterrows()):
-            with cols[i % 3].container(border=True):
-                st.write(f"**{row['nome']}**")
-                st.write(f"R$ {row['preco']} ({row['status']})")
-                c_b1, c_b2 = st.columns(2)
-                if c_b1.button("Ocultar" if row['status'] == 'Ativo' else "Ativar", key=f"st_{row['id']}", use_container_width=True):
-                    df_produtos.at[idx, 'status'] = 'Inativo' if row['status'] == 'Ativo' else 'Ativo'
-                    conn.update(worksheet="Produtos", data=df_produtos); st.cache_data.clear(); st.rerun()
-                if c_b2.button("🗑️", key=f"del_{row['id']}", use_container_width=True):
-                    conn.update(worksheet="Produtos", data=df_produtos.drop(idx)); st.cache_data.clear(); st.rerun()
