@@ -24,40 +24,47 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO DIRETA (RAWBT) ---
+# --- FUNÇÃO DE IMPRESSÃO (BOTÃO HTML SEGURO) ---
 def disparar_impressao_rawbt(ped):
     status_pg = ped.get('pagamento', 'A Pagar')
-    # Etiqueta limpa conforme pedido: Direto aos dados
+    # Texto limpo e direto
     texto = (
         f"--------------------------------\n"
         f"        @dahortapmesa 🌱\n"
         f"--------------------------------\n"
-        f"{ped['cliente'].upper()}\n"
-        f"{ped['endereco'].upper()}\n"
+        f"{str(ped['cliente']).upper()}\n"
+        f"{str(ped['endereco']).upper()}\n"
         f"--------------------------------\n"
         f"VALOR: R$ {float(ped['total']):.2f}\n"
         f"PGTO: {status_pg}\n"
         f"--------------------------------\n\n\n"
     )
     
-    # Codificação para URL
     texto_codificado = urllib.parse.quote(texto)
-    # Comando específico que o Android usa para abrir o RawBT com o texto pronto
+    # Link Intent para Android abrir o RawBT
     url_rawbt = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.text={texto_codificado};end;"
     
-    # Botão que chama o App diretamente
-    st.markdown(
-        f"""
-        <a href="{url_rawbt}" style="text-decoration: none;">
-            <button style="width:100%; padding:15px; background:#000; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">
-                🖨️ IMPRIMIR AGORA (RAWBT)
-            </button>
+    # Criando o botão visualmente
+    botao_html = f"""
+        <a href="{url_rawbt}" target="_blank" style="text-decoration: none;">
+            <div style="
+                background-color: #28a745;
+                color: white;
+                padding: 12px;
+                text-align: center;
+                border-radius: 8px;
+                font-weight: bold;
+                font-family: Arial;
+                margin-top: 5px;
+                cursor: pointer;
+            ">
+                🖨️ IMPRIMIR (RAWBT)
+            </div>
         </a>
-        """, 
-        unsafe_allow_html=True
-    )
+    """
+    st.markdown(botao_html, unsafe_allow_html=True)
 
-# --- TELA: NOVO PEDIDO ---
+# --- NOVO PEDIDO ---
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
@@ -90,10 +97,10 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
                 st.session_state.edit_data = None
                 st.cache_data.clear()
-                st.success("Pedido enviado para montagem!")
+                st.success("Pedido enviado!")
                 st.rerun()
 
-# --- TELA: MONTAGEM ---
+# --- MONTAGEM ---
 elif menu == "Montagem/Expedição":
     st.header("📦 Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
@@ -124,7 +131,7 @@ elif menu == "Montagem/Expedição":
             
             col1, col2, col3, col4 = st.columns(4)
             
-            if col1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg, type="primary"):
+            if col1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
                 df_pedidos.at[idx, 'status'] = "Concluído"
                 df_pedidos.at[idx, 'total'] = t_real
                 df_pedidos.at[idx, 'itens'] = json.dumps(itens)
@@ -133,6 +140,7 @@ elif menu == "Montagem/Expedição":
                 st.rerun()
 
             with col2:
+                # Agora chamamos a função que renderiza o botão HTML
                 p_copy = ped.to_dict()
                 p_copy['total'] = t_real
                 disparar_impressao_rawbt(p_copy)
