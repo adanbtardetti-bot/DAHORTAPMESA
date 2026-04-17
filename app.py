@@ -3,7 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import json
-import base64
+import urllib.parse
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -24,29 +24,38 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- NOVA FUNÇÃO DE IMPRESSÃO (VIA ARQUIVO DE TEXTO PARA RAWBT) ---
+# --- FUNÇÃO DE IMPRESSÃO DIRETA (RAWBT) ---
 def disparar_impressao_rawbt(ped):
     status_pg = ped.get('pagamento', 'A Pagar')
-    # Formatando o texto de forma bem simples para a térmica
+    # Etiqueta limpa conforme pedido: Direto aos dados
     texto = (
         f"--------------------------------\n"
-        f"      @dahortapmesa \n"
+        f"        @dahortapmesa 🌱\n"
         f"--------------------------------\n"
-        f"CLIENTE: {ped['cliente']}\n"
-        f"END: {ped['endereco']}\n"
+        f"{ped['cliente'].upper()}\n"
+        f"{ped['endereco'].upper()}\n"
         f"--------------------------------\n"
-        f"TOTAL: R$ {float(ped['total']):.2f}\n"
+        f"VALOR: R$ {float(ped['total']):.2f}\n"
         f"PGTO: {status_pg}\n"
         f"--------------------------------\n\n\n"
     )
     
-    # Cria um link de download de um arquivo .txt que o RawBT consegue "ler"
-    b64 = base64.b64encode(texto.encode()).decode()
-    filename = f"etiqueta_{ped['id']}.txt"
-    href = f'<a href="data:text/plain;base64,{b64}" download="{filename}"><button style="width:100%; padding:15px; background:#28a745; color:white; border:none; border-radius:10px; font-weight:bold;">🖨️ GERAR ARQUIVO IMPRESSÃO</button></a>'
+    # Codificação para URL
+    texto_codificado = urllib.parse.quote(texto)
+    # Comando específico que o Android usa para abrir o RawBT com o texto pronto
+    url_rawbt = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.text={texto_codificado};end;"
     
-    st.markdown(href, unsafe_allow_html=True)
-    st.caption("Ao baixar, abra o arquivo com o app RawBT.")
+    # Botão que chama o App diretamente
+    st.markdown(
+        f"""
+        <a href="{url_rawbt}" style="text-decoration: none;">
+            <button style="width:100%; padding:15px; background:#000; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">
+                🖨️ IMPRIMIR AGORA (RAWBT)
+            </button>
+        </a>
+        """, 
+        unsafe_allow_html=True
+    )
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
@@ -54,7 +63,7 @@ if menu == "Novo Pedido":
     edit = st.session_state.edit_data
     
     with st.form("form_venda"):
-        c = st.text_input("Nome do Cliente", value=edit['cliente'] if edit else "")
+        c = st.text_input("Cliente", value=edit['cliente'] if edit else "")
         e = st.text_input("Endereço", value=edit['endereco'] if edit else "")
         pg = st.selectbox("Pagamento", ["A Pagar", "Pago", "Pix", "Dinheiro"])
         
@@ -70,7 +79,7 @@ if menu == "Novo Pedido":
             if qtd > 0:
                 itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
         
-        if st.form_submit_button("✅ Salvar Pedido"):
+        if st.form_submit_button("✅ Gravar Pedido"):
             if c and itens_p:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty else 1
                 novo = pd.DataFrame([{
@@ -81,7 +90,7 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
                 st.session_state.edit_data = None
                 st.cache_data.clear()
-                st.success("Pedido enviado!")
+                st.success("Pedido enviado para montagem!")
                 st.rerun()
 
 # --- TELA: MONTAGEM ---
@@ -99,18 +108,14 @@ elif menu == "Montagem/Expedição":
             for i, it in enumerate(itens):
                 if it['tipo'] == "KG":
                     st.write(f"⚖️ **{it['nome']}**")
-                    # Campo texto vazio sem valor sugerido
-                    v_input = st.text_input(f"Digite o valor R$:", key=f"v_{ped['id']}_{i}", value="")
-                    
+                    v_input = st.text_input(f"Valor R$:", key=f"v_{ped['id']}_{i}", value="")
                     if v_input:
                         try:
                             v_float = float(v_input.replace(',', '.'))
                             it['subtotal'] = v_float
                             t_real += v_float
-                        except:
-                            trava_kg = True
-                    else:
-                        trava_kg = True
+                        except: trava_kg = True
+                    else: trava_kg = True
                 else:
                     st.write(f"✅ {it['nome']} - {it['qtd']} un")
                     t_real += it['subtotal']
