@@ -14,20 +14,28 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def limpar_nan(texto):
     t = str(texto).replace('nan', '').replace('NaN', '').strip()
-    return t if t else ""
+    return t if t != "" else "N/A"
 
 def carregar_dados(aba):
     try:
         df = conn.read(worksheet=aba, ttl=0)
-        return df.dropna(how="all") if df is not None else pd.DataFrame()
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return df.dropna(how="all")
     except:
         return pd.DataFrame()
 
+# Carga inicial com verificação de colunas
 df_produtos = carregar_dados("Produtos")
 df_pedidos = carregar_dados("Pedidos")
 
+# Garante que as colunas existam para não dar erro de "Key"
+if df_pedidos.empty:
+    df_pedidos = pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento"])
+
 if not df_produtos.empty and 'status' not in df_produtos.columns:
     df_produtos['status'] = 'Ativo'
+
 if 'edit_data' not in st.session_state:
     st.session_state.edit_data = None
 
@@ -40,11 +48,12 @@ def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
         nome = limpar_nan(ped.get('cliente')).upper()
         endereco = limpar_nan(ped.get('endereco')).upper()
         pgto = limpar_nan(ped.get('pagamento')).upper()
-        valor_fmt = f"{float(ped.get('total', 0)):.2f}".replace('.', ',')
+        valor = ped.get('total', 0)
+        valor_fmt = f"{float(valor):.2f}".replace('.', ',')
         
         comandos = "\x1b\x61\x01" 
-        if nome: comandos += "\x1b\x21\x38" + nome + "\n"
-        if endereco: comandos += "\x1b\x21\x38" + endereco + "\n"
+        if nome != "N/A": comandos += "\x1b\x21\x38" + nome + "\n"
+        if endereco != "N/A": comandos += "\x1b\x21\x38" + endereco + "\n"
         comandos += "\x1b\x21\x00" + "----------------\n"
         comandos += "TOTAL: RS " + valor_fmt + "\n"
         if pgto == "PAGO": comandos += "PAGO\n"
@@ -53,7 +62,7 @@ def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
         b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
         url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
         st.markdown(f'''<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">🖨️ {label}</div></a>''', unsafe_allow_html=True)
-    except: st.error("Erro na etiqueta.")
+    except: st.error("Erro ao gerar etiqueta.")
 
 # --- ABA 1: NOVO PEDIDO ---
 with tab1:
@@ -84,79 +93,5 @@ with tab1:
 # --- ABA 2: COLHEITA ---
 with tab2:
     st.header("🚜 Lista de Colheita")
-    if not df_pedidos.empty:
-        pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
-        if pendentes.empty: st.info("Nenhum pedido pendente.")
-        else:
-            soma = {}
-            for _, ped in pendentes.iterrows():
-                try:
-                    its = json.loads(ped['itens'])
-                    for i in its:
-                        n = i['nome']; soma[n] = soma.get(n, 0) + i['qtd']
-                except: pass
-            st.table(pd.DataFrame([{"Produto": k, "Qtd": v} for k, v in soma.items()]))
-            txt_w = urllib.parse.quote(f"*COLHEITA {datetime.now().strftime('%d/%m')}*\n" + "\n".join([f"• {k}: {v}" for k, v in soma.items()]))
-            st.markdown(f'<a href="https://wa.me/?text={txt_w}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:15px;text-align:center;border-radius:10px;font-weight:bold;">📱 ENVIAR LISTA WHATSAPP</div></a>', unsafe_allow_html=True)
-
-# --- ABA 3: MONTAGEM ---
-with tab3:
-    st.header("📦 Central de Montagem")
-    if not df_pedidos.empty:
-        pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
-        for idx, ped in pendentes.iterrows():
-            with st.container(border=True):
-                st.subheader(f"👤 {limpar_nan(ped['cliente'])}")
-                itens_lista = json.loads(ped['itens']); t_real = 0.0; trava_kg = False
-                col_i, col_r = st.columns([2, 1])
-                with col_i:
-                    for i, it in enumerate(itens_lista):
-                        if it['tipo'] == "KG":
-                            v_in = st.text_input(f"Valor R$ {it['nome']}:", key=f"mnt_{ped['id']}_{i}")
-                            if v_in:
-                                try: val = float(v_in.replace(',', '.')); it['subtotal'] = val; t_real += val
-                                except: trava_kg = True
-                            else: trava_kg = True
-                        else: st.write(f"✅ {it['nome']} - {it['qtd']} UN"); t_real += it['subtotal']
-                with col_r:
-                    st.write(f"Pgto: **{ped['pagamento']}**")
-                    st.markdown(f"### Total: R$ {t_real:.2f}")
-                disparar_impressao_rawbt({"cliente":ped['cliente'], "endereco":ped['endereco'], "total":t_real, "pagamento":ped['pagamento']})
-                if st.button("✅ CONCLUIR", key=f"f_{ped['id']}", disabled=trava_kg, use_container_width=True):
-                    df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_real; df_pedidos.at[idx, 'itens'] = json.dumps(itens_lista)
-                    conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
-
-# --- ABA 4: HISTÓRICO ---
-with tab4:
-    st.header("📅 Histórico")
-    if not df_pedidos.empty:
-        concluidos = df_pedidos[df_pedidos['status'] == "Concluído"].copy()
-        if concluidos.empty: st.info("Nenhum pedido concluído.")
-        else:
-            concluidos['data'] = concluidos['data'].fillna(datetime.now().strftime("%d/%m/%Y"))
-            for data, grupo in concluidos.groupby('data', sort=False):
-                st.markdown(f"#### 📅 {data}")
-                for idx, ped in grupo.iterrows():
-                    nome_c = limpar_nan(ped['cliente'])
-                    valor_c = float(ped['total'])
-                    with st.expander(f"👤 {nome_c} - R$ {valor_c:.2f} ({ped['pagamento'].upper()})"):
-                        st.write(f"📍 **Endereço:** {limpar_nan(ped['endereco'])}")
-                        st.write("**Itens do Pedido:**")
-                        try:
-                            itens = json.loads(ped['itens'])
-                            recibo_txt = f"*HORTA DA MESA - RECIBO*\n\n*Cliente:* {nome_c}\n"
-                            for it in itens:
-                                st.write(f"- {it['nome']}: R$ {float(it['subtotal']):.2f}")
-                                recibo_txt += f"• {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
-                            recibo_txt += f"\n*TOTAL: R$ {valor_c:.2f}*\n*Status:* {ped['pagamento'].upper()}"
-                        except: st.write("Erro ao carregar itens.")
-                        
-                        st.divider()
-                        disparar_impressao_rawbt(ped, "REIMPRIMIR ETIQUETA")
-                        c1, c2 = st.columns(2)
-                        if c1.button("💳 ALTERAR PGTO", key=f"pg_{ped['id']}", use_container_width=True):
-                            df_pedidos.at[idx, 'pagamento'] = "A Pagar" if ped['pagamento'] == "Pago" else "Pago"
-                            conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
-                        
-                        if c2.button("📱 RECIBO WHATSAPP", key=f"rec_{ped['id']}", use_container_width=True):
-                            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(recibo_txt)}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:10px;
+    pendentes = df_pedidos[df_pedidos['status'] == "Pendente"] if not df_pedidos.empty else pd.DataFrame()
+    if pendentes.empty: st.info("N
