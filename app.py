@@ -3,7 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import json
-import urllib.parse
+import base64
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -24,53 +24,49 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (ESTRATÉGIA DE TEXTO PURO) ---
+# --- FUNÇÃO DE IMPRESSÃO (LINK DIRETO RAWBT BASE64) ---
 def disparar_impressao_rawbt(ped):
     status_pg = ped.get('pagamento', 'A Pagar')
     
-    # Montando o texto sem acentos ou caracteres que travam emuladores
-    # Usamos \n para quebra de linha
-    linhas = [
-        "--------------------------------",
-        "        DA HORTA P/ MESA",
-        "--------------------------------",
-        f"{str(ped['cliente']).upper()}",
-        f"{str(ped['endereco']).upper()}",
-        "--------------------------------",
-        f"TOTAL: R$ {float(ped['total']):.2f}",
-        f"PAGAMENTO: {status_pg.upper()}",
-        "--------------------------------",
-        "\n\n\n" # Espaço final
-    ]
+    # Texto ultra-limpo para evitar erros de buffer
+    texto = (
+        "--------------------------------\n"
+        "        DA HORTA P/ MESA\n"
+        "--------------------------------\n"
+        f"{str(ped['cliente']).upper()}\n"
+        f"{str(ped['endereco']).upper()}\n"
+        "--------------------------------\n"
+        f"TOTAL: R$ {float(ped['total']):.2f}\n"
+        f"PAGTO: {status_pg.upper()}\n"
+        "--------------------------------\n"
+        "\n\n\n"
+    )
     
-    texto_final = "\n".join(linhas)
+    # Converte para Base64
+    b64_texto = base64.b64encode(texto.encode('utf-8')).decode('utf-8')
     
-    # Codificação URL simples
-    texto_url = urllib.parse.quote(texto_final)
-    
-    # Intent para o RawBT capturar como texto (S.text)
-    # Adicionamos o parâmetro 'show=true' para o app abrir e mostrar o texto antes
-    url_rawbt = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.text={texto_url};end;"
+    # Este é o link oficial que abre o RawBT e já cola o texto
+    url_rawbt = f"rawbt:base64,{b64_texto}"
     
     botao_html = f"""
-        <a href="{url_rawbt}" style="text-decoration: none;">
+        <a href="{url_rawbt}">
             <div style="
-                background-color: #000000;
-                color: white;
-                padding: 18px;
+                background-color: #000;
+                color: #fff;
+                padding: 15px;
                 text-align: center;
-                border-radius: 12px;
+                border: 2px solid #28a745;
+                border-radius: 10px;
                 font-weight: bold;
                 font-size: 20px;
-                border: 2px solid #28a745;
             ">
-                🖨️ IMPRIMIR ETIQUETA
+                🖨️ IMPRIMIR AGORA
             </div>
         </a>
     """
     st.markdown(botao_html, unsafe_allow_html=True)
 
-# --- NOVO PEDIDO ---
+# --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
@@ -105,7 +101,7 @@ if menu == "Novo Pedido":
                 st.cache_data.clear()
                 st.rerun()
 
-# --- MONTAGEM ---
+# --- TELA: MONTAGEM ---
 elif menu == "Montagem/Expedição":
     st.header("📦 Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
@@ -145,7 +141,6 @@ elif menu == "Montagem/Expedição":
                 st.rerun()
 
             with c2:
-                # Botão de impressão
                 p_copy = ped.to_dict()
                 p_copy['total'] = t_real
                 disparar_impressao_rawbt(p_copy)
@@ -157,7 +152,7 @@ elif menu == "Montagem/Expedição":
                 st.cache_data.clear()
                 st.rerun()
 
-            if col4_ex := c4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
+            if c4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
                 df_pedidos = df_pedidos.drop(idx)
                 conn.update(worksheet="Pedidos", data=df_pedidos)
                 st.cache_data.clear()
