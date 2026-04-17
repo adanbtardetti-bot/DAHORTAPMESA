@@ -27,7 +27,7 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (SÓ PAGO + LAYOUT SEU) ---
+# --- FUNÇÃO DE IMPRESSÃO (BOTÃO MELHORADO) ---
 def disparar_impressao_rawbt(ped):
     nome = str(ped.get('cliente', '')).strip().upper() if pd.notna(ped.get('cliente')) else ""
     endereco = str(ped.get('endereco', '')).strip().upper() if pd.notna(ped.get('endereco')) else ""
@@ -46,10 +46,33 @@ def disparar_impressao_rawbt(ped):
     try:
         b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
         url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
-        st.markdown(f'<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:15px;text-align:center;border-radius:10px;font-weight:bold;font-size:20px;">🖨️ IMPRIMIR ETIQUETA</div></a>', unsafe_allow_html=True)
-    except: st.error("Erro nos caracteres.")
+        
+        # HTML do Botão Estilizado
+        st.markdown(f"""
+            <a href="{url_rawbt}" style="text-decoration: none;">
+                <div style="
+                    background-color: #28a745; 
+                    color: white; 
+                    padding: 12px 5px; 
+                    text-align: center; 
+                    border-radius: 8px; 
+                    font-weight: bold; 
+                    font-size: 16px; 
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    border: 1px solid #218838;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    text-transform: uppercase;">
+                    <span style="font-size: 22px;">🖨️</span> IMPRIMIR
+                </div>
+            </a>
+            """, unsafe_allow_html=True)
+    except: 
+        st.error("Erro nos caracteres.")
 
-# --- TELA: NOVO PEDIDO ---
+# --- TELAS DE OPERAÇÃO ---
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
@@ -77,88 +100,54 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_df], ignore_index=True))
                 st.session_state.edit_data = None; st.cache_data.clear(); st.rerun()
 
-# --- TELA: MONTAGEM (LAYOUT MELHORADO) ---
 elif menu == "Montagem/Expedição":
     st.title("📦 Central de Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
-    
-    if pendentes.empty:
-        st.info("Todos os pedidos já foram montados! 🎉")
-    
     for idx, ped in pendentes.iterrows():
-        # Card de Pedido com borda destacada
         with st.container(border=True):
-            # Cabeçalho do Card: Cliente e Endereço com Destaque
             st.markdown(f"## 👤 {ped['cliente']}")
-            if ped['endereco']:
-                st.markdown(f"📍 **Endereço:** {ped['endereco']}")
-            else:
-                st.markdown("📍 *Endereço não informado*")
-            
+            st.markdown(f"📍 **Endereço:** {ped['endereco'] if ped['endereco'] else '*Não informado*'}")
             st.divider()
+            itens = json.loads(ped['itens']); t_real = 0.0; trava_kg = False
             
-            # Lista de Itens
-            itens = json.loads(ped['itens'])
-            t_real = 0.0
-            trava_kg = False
-            
-            col_itens_1, col_itens_2 = st.columns([2, 1])
-            
-            with col_itens_1:
-                st.write("**Lista de Itens:**")
+            c_it, c_res = st.columns([2, 1])
+            with c_it:
                 for i, it in enumerate(itens):
                     if it['tipo'] == "KG":
-                        # Campo de entrada para peso/valor destacado
-                        st.markdown(f"⚖️ **{it['nome']} (KG)**")
-                        v_input = st.text_input(f"Valor R$ {it['nome']}:", key=f"v_{ped['id']}_{i}", placeholder="0,00")
+                        v_input = st.text_input(f"Valor R$ {it['nome']}:", key=f"v_{ped['id']}_{i}")
                         if v_input:
                             try:
-                                valor_item = float(v_input.replace(',', '.'))
-                                t_real += valor_item
-                                it['subtotal'] = valor_item
+                                v = float(v_input.replace(',', '.'))
+                                t_real += v; it['subtotal'] = v
                             except: trava_kg = True
                         else: trava_kg = True
                     else:
                         st.markdown(f"✅ {it['nome']} — **{it['qtd']} UN**")
                         t_real += it['subtotal']
             
-            with col_itens_2:
-                # Painel de Status de Pagamento e Total
-                st.write("**Resumo Financeiro:**")
-                cor_pg = "green" if ped['pagamento'] == "Pago" else "red"
-                st.markdown(f"Pagamento: <span style='color:{cor_pg}; font-weight:bold;'>{ped['pagamento'].upper()}</span>", unsafe_allow_html=True)
+            with c_res:
+                st.markdown(f"Pagto: **{ped['pagamento'].upper()}**")
                 st.markdown(f"### Total: R$ {t_real:.2f}")
 
-            st.write("") # Espaço
-
-            # Botões de Ação na Base do Card
+            # BOTÕES DE AÇÃO
+            st.write("")
             b1, b2, b3, b4 = st.columns(4)
-            
             if b1.button("✅ CONCLUIR", key=f"f_{ped['id']}", disabled=trava_kg, use_container_width=True):
-                df_pedidos.at[idx, 'status'] = "Concluído"
-                df_pedidos.at[idx, 'total'] = t_real
-                df_pedidos.at[idx, 'itens'] = json.dumps(itens)
-                conn.update(worksheet="Pedidos", data=df_pedidos)
-                st.cache_data.clear(); st.rerun()
-
-            with b2:
-                # Envia dados atualizados para a função de impressão
+                df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_real; df_pedidos.at[idx, 'itens'] = json.dumps(itens)
+                conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
+            
+            with b2: # O BOTÃO NOVO AQUI
                 disparar_impressao_rawbt({"cliente":ped['cliente'], "endereco":ped['endereco'], "total":t_real, "pagamento":ped['pagamento']})
-
+            
             if b3.button("✏️ EDITAR", key=f"e_{ped['id']}", use_container_width=True):
                 st.session_state.edit_data = ped.to_dict()
-                df_pedidos_restantes = df_pedidos.drop(idx)
-                conn.update(worksheet="Pedidos", data=df_pedidos_restantes)
-                st.cache_data.clear(); st.rerun()
-
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
             if b4.button("🗑️ EXCLUIR", key=f"x_{ped['id']}", use_container_width=True):
-                df_pedidos_restantes = df_pedidos.drop(idx)
-                conn.update(worksheet="Pedidos", data=df_pedidos_restantes)
-                st.cache_data.clear(); st.rerun()
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx)); st.cache_data.clear(); st.rerun()
 
-# --- TELA: ESTOQUE (LAYOUT GRID 3 COLUNAS) ---
 elif menu == "Estoque":
-    st.title("🥦 Controle de Estoque")
+    st.title("🥦 Estoque")
+    # ... (Mantenha a lógica do estoque que já funciona)
     col_busca, col_add = st.columns([2, 1])
     busca = col_busca.text_input("🔍 Buscar Produto", "").upper()
     with col_add.expander("➕ Novo Item"):
@@ -169,6 +158,16 @@ elif menu == "Estoque":
                 new = pd.DataFrame([{"id":nid, "nome":n.upper(), "preco":p, "tipo":t, "status":"Ativo"}])
                 conn.update(worksheet="Produtos", data=pd.concat([df_produtos, new], ignore_index=True))
                 st.cache_data.clear(); st.rerun()
-    st.write("---")
     if not df_produtos.empty:
-        df_f = df_produtos[df_produtos['nome'].str.contains(busca)] if busca else df
+        df_f = df_produtos[df_produtos['nome'].str.contains(busca)] if busca else df_produtos
+        cols = st.columns(3)
+        for i, (idx, row) in enumerate(df_f.iterrows()):
+            with cols[i % 3].container(border=True):
+                st.markdown(f"### {'🟢' if row['status'] == 'Ativo' else '⚪'} {row['nome']}")
+                st.markdown(f"**R$ {row['preco']:.2f}**")
+                b_c1, b_c2 = st.columns(2)
+                if b_c1.button("Ocultar" if row['status'] == 'Ativo' else "Ativar", key=f"st_{row['id']}", use_container_width=True):
+                    df_produtos.at[idx, 'status'] = 'Inativo' if row['status'] == 'Ativo' else 'Ativo'
+                    conn.update(worksheet="Produtos", data=df_produtos); st.cache_data.clear(); st.rerun()
+                if b_c2.button("🗑️", key=f"del_{row['id']}", use_container_width=True):
+                    df_produtos = df_produtos.drop(idx); conn.update(worksheet="Produtos", data=df_produtos); st.cache_data.clear(); st.rerun()
