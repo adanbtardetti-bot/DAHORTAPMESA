@@ -135,6 +135,8 @@ with tab4:
                 
                 with st.expander(f"👤 {cliente_nome} - R$ {valor_total} ({pgto_status})"):
                     st.write(f"📍 Endereço: {limpar_nan(ped['endereco'])}")
+                    
+                    # Gerar texto do recibo e exibir itens
                     try:
                         lista_itens = json.loads(ped['itens'])
                         txt_recibo = f"*DA HORTA PRA MESA - RECIBO*\n\n*Cliente:* {cliente_nome}\n"
@@ -145,16 +147,18 @@ with tab4:
                     except: txt_recibo = ""
 
                     st.divider()
+                    
+                    # 1. Impressão
                     disparar_impressao_rawbt(ped, "REIMPRIMIR ETIQUETA")
                     
-                    c1, c2 = st.columns(2)
-                    if c1.button("💳 ALTERAR PGTO", key=f"alt_{ped['id']}", use_container_width=True):
+                    # 2. WhatsApp (Botão Verde Direto)
+                    url_zap = f"https://wa.me/?text={urllib.parse.quote(txt_recibo)}"
+                    st.markdown(f'''<a href="{url_zap}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">📱 ENVIAR RECIBO WHATSAPP</div></a>''', unsafe_allow_html=True)
+                    
+                    # 3. Alterar Pagamento (Botão Cinza Streamlit)
+                    if st.button("💳 ALTERAR STATUS PAGAMENTO", key=f"alt_{ped['id']}", use_container_width=True):
                         df_pedidos.at[idx, 'pagamento'] = "A Pagar" if pgto_status == "PAGO" else "Pago"
                         conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
-                    
-                    # Botão WhatsApp Direto
-                    url_zap = f"https://wa.me/?text={urllib.parse.quote(txt_recibo)}"
-                    st.markdown(f'''<a href="{url_zap}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;">📱 ENVIAR RECIBO WHATSAPP</div></a>''', unsafe_allow_html=True)
 
 # --- ABA 5: ESTOQUE ---
 with tab5:
