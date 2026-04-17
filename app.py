@@ -3,136 +3,155 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import json
 import base64
-import urllib.parse
 from datetime import datetime
 
-# 1. Configuração da Página
+# 1. Configuração e Conexão
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
-
-# 2. Conexão com Google Sheets (TTL=5 para equilíbrio entre velocidade e cota)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- FUNÇÃO DE CARREGAMENTO SEGURO ---
+# --- INICIALIZAÇÃO DE ESTADO PARA LIMPAR CAMPOS ---
+if "form_id" not in st.session_state:
+    st.session_state.form_id = 0
+
+def resetar_formulario():
+    st.session_state.form_id += 1
+    st.cache_data.clear()
+
+# --- CARREGAMENTO DE DADOS ---
 def carregar_dados():
     try:
-        df_p = conn.read(worksheet="Produtos", ttl=5).dropna(how="all")
-        df_v = conn.read(worksheet="Pedidos", ttl=5).dropna(how="all")
-        
+        df_p = conn.read(worksheet="Produtos", ttl=2).dropna(how="all")
+        df_v = conn.read(worksheet="Pedidos", ttl=2).dropna(how="all")
         df_p.columns = [str(c).lower().strip() for c in df_p.columns]
         df_v.columns = [str(c).lower().strip() for c in df_v.columns]
-        
-        # Garante que colunas essenciais existam
+        # Garante colunas
         for col in ['id', 'cliente', 'endereco', 'obs', 'itens', 'status', 'data', 'total', 'pagamento']:
             if col not in df_v.columns: df_v[col] = ""
         return df_p, df_v
-    except Exception as e:
-        st.error(f"Erro de conexão: {e}")
+    except:
         return pd.DataFrame(), pd.DataFrame()
 
 df_produtos, df_pedidos = carregar_dados()
 
-# --- ESTILO BOTÃO IMPRIMIR ---
+# --- IMPRESSÃO ---
 def botao_imprimir(ped, label="🖨️ IMPRIMIR"):
     nome = str(ped.get('cliente', 'CLIENTE')).upper()
     total = f"{float(ped.get('total', 0)):.2f}".replace('.', ',')
     comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00TOTAL: RS {total}\n\n\n\n"
     b64 = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
     url = f"intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
-    st.markdown(f'<a href="{url}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;border:1px solid white;">{label}</div></a>', unsafe_allow_html=True)
+    st.markdown(f'<a href="{url}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">{label}</div></a>', unsafe_allow_html=True)
 
-# --- NAVEGAÇÃO ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "📊 FINANCEIRO", "🥦 ESTOQUE"])
+# --- ABAS ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛒 NOVO PEDIDO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "🥦 ESTOQUE"])
 
 # --- 1. NOVO PEDIDO ---
 with tab1:
     st.header("🛒 Novo Pedido")
+    # A 'key' do form_id muda toda vez que salvamos, limpando os campos abaixo
+    fid = st.session_state.form_id
     
-    # Identificação no Topo
-    c1, c2 = st.columns(2)
-    nome = c1.text_input("NOME DO CLIENTE", key="c_nome").upper()
-    endereco = c2.text_input("ENDEREÇO", key="c_end").upper()
-    obs = st.text_area("OBSERVAÇÕES", key="c_obs").upper()
-    pago_f = st.checkbox("PAGO ANTECIPADO", key="c_pago")
+    col1, col2 = st.columns(2)
+    nome = col1.text_input("NOME DO CLIENTE", key=f"nome_{fid}").upper()
+    end = col2.text_input("ENDEREÇO", key=f"end_{fid}").upper()
+    obs = st.text_area("OBSERVAÇÕES", key=f"obs_{fid}").upper()
+    pago = st.checkbox("PAGO ANTECIPADO", key=f"pago_{fid}")
 
     st.divider()
-    
-    # PRODUTOS E CÁLCULO
-    st.subheader("Itens")
+    st.subheader("Selecione os Produtos")
     itens_venda = []
     total_previo = 0.0
     
     if not df_produtos.empty:
-        # Filtra apenas ativos
-        p_ativos = df_produtos[df_produtos['status'].astype(str).str.lower() == 'ativo']
-        cp1, cp2 = st.columns(2)
-        
-        for i, (_, p) in enumerate(p_ativos.iterrows()):
-            alvo = cp1 if i % 2 == 0 else cp2
-            qtd = alvo.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, step=1, key=f"v_{p['id']}")
-            
+        ativos = df_produtos[df_produtos['status'].astype(str).str.lower() == 'ativo']
+        c_prod1, c_prod2 = st.columns(2)
+        for i, (_, p) in enumerate(ativos.iterrows()):
+            alvo = c_prod1 if i % 2 == 0 else c_prod2
+            qtd = alvo.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, step=1, key=f"p_{p['id']}_{fid}")
             if qtd > 0:
-                # Converte preço para número garantindo que vírgulas virem pontos
-                try:
-                    preco_num = float(str(p['preco']).replace(',', '.'))
-                except:
-                    preco_num = 0.0
-                
-                # Se for KG, o subtotal é 0.0 para ser preenchido na montagem
-                sub = 0.0 if str(p['tipo']).upper() == "KG" else (qtd * preco_num)
-                
-                itens_venda.append({
-                    "nome": p['nome'], 
-                    "qtd": qtd, 
-                    "tipo": p['tipo'], 
-                    "subtotal": sub
-                })
+                preco = float(str(p['preco']).replace(',', '.'))
+                sub = 0.0 if str(p['tipo']).upper() == "KG" else (qtd * preco)
+                itens_venda.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": sub})
                 total_previo += sub
     
-    st.markdown(f"## 💰 TOTAL DOS ITENS FIXOS: R$ {total_previo:.2f}")
+    st.markdown(f"### 💰 Total (Itens Fixos): R$ {total_previo:.2f}")
 
     if st.button("✅ SALVAR PEDIDO", use_container_width=True):
-        if (nome or endereco) and itens_venda:
+        if (nome or end) and itens_venda:
             try:
-                # Gerar ID numérico seguro
-                ids_existentes = pd.to_numeric(df_pedidos['id'], errors='coerce').dropna()
-                prox_id = int(ids_existentes.max() + 1) if not ids_existentes.empty else 1
+                ids = pd.to_numeric(df_pedidos['id'], errors='coerce').dropna()
+                prox_id = int(ids.max() + 1) if not ids.empty else 1
                 
-                novo_p = pd.DataFrame([{
-                    "id": prox_id, "cliente": nome, "endereco": endereco, "obs": obs,
+                novo_row = pd.DataFrame([{
+                    "id": prox_id, "cliente": nome, "endereco": end, "obs": obs,
                     "itens": json.dumps(itens_venda), "status": "Pendente",
                     "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0,
-                    "pagamento": "Pago" if pago_f else "A Pagar"
+                    "pagamento": "Pago" if pago else "A Pagar"
                 }])
-                
-                conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_p], ignore_index=True))
-                st.success("Pedido Gravado!")
-                st.cache_data.clear()
-                st.rerun() # Limpa todos os campos
+                conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo_row], ignore_index=True))
+                st.success("Salvo!")
+                resetar_formulario()
+                st.rerun()
             except Exception as e:
-                st.error(f"Erro ao salvar na planilha: {e}")
+                st.error(f"Erro ao salvar: {e}")
         else:
-            st.warning("Preencha Nome ou Endereço e escolha pelo menos um produto.")
+            st.warning("Preencha Nome/Endereço e escolha itens.")
+
+# --- 2. COLHEITA ---
+with tab2:
+    st.header("🚜 Lista de Colheita")
+    pendentes = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
+    if not pendentes.empty:
+        resumo = {}
+        for _, p in pendentes.iterrows():
+            itens = json.loads(p['itens'])
+            for it in itens:
+                nome_it = it['nome']
+                resumo[nome_it] = resumo.get(nome_it, 0) + it['qtd']
+        
+        df_colheita = pd.DataFrame([{"Produto": k, "Total": v} for k, v in resumo.items()])
+        st.table(df_colheita)
+    else:
+        st.info("Nenhum pedido pendente para colheita.")
 
 # --- 3. MONTAGEM ---
 with tab3:
-    st.header("📦 Montagem")
-    pend = df_pedidos[df_pedidos['status'] == "Pendente"]
-    for idx, p in pend.iterrows():
+    st.header("📦 Detalhes para Montagem")
+    pendentes = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
+    for idx, p in pendentes.iterrows():
         with st.container(border=True):
-            m1, m2 = st.columns([3, 1])
-            m1.subheader(f"👤 {p['cliente']}")
-            m1.write(f"📍 {p['endereco']}")
-            if p['obs']: m1.warning(f"📝 {p['obs']}")
+            col_a, col_b = st.columns([3, 1])
+            col_a.subheader(f"👤 {p['cliente']}")
+            col_a.write(f"📍 {p['endereco']}")
+            if p['obs']: col_a.info(f"📝 {p['obs']}")
             
-            if m2.button("🗑️ EXCLUIR", key=f"del_{p['id']}"):
-                df_pedidos.drop(idx, inplace=True)
-                conn.update(worksheet="Pedidos", data=df_pedidos)
+            if col_b.button("🗑️ EXCLUIR", key=f"exc_{p['id']}"):
+                conn.update(worksheet="Pedidos", data=df_pedidos.drop(idx))
                 st.cache_data.clear(); st.rerun()
 
             itens_list = json.loads(p['itens'])
-            t_final = 0.0
-            trava_kg = False
+            t_real = 0.0
+            preenchido = True
             
+            st.write("**Itens do Pedido:**")
             for i, it in enumerate(itens_list):
                 if str(it['tipo']).upper() == "KG":
-                    v_kg = st.text_input(f"Valor R$ {it['nome']}:", key=f"m_{p['id']}_{i}")
+                    val = st.text_input(f"Valor R$ {it['nome']} (Sugerido {it['qtd']}kg):", key=f"mont_{p['id']}_{i}")
+                    if val:
+                        v_num = float(val.replace(',', '.'))
+                        it['subtotal'] = v_num; t_real += v_num
+                    else: preenchido = False
+                else:
+                    st.write(f"- {it['nome']}: {it['qtd']} UN")
+                    t_final_it = float(it['subtotal'])
+                    t_real += t_final_it
+            
+            st.write(f"### Total: R$ {t_real:.2f}")
+            botao_imprimir({"cliente": p['cliente'], "total": t_real})
+            
+            if st.button("✅ FINALIZAR", key=f"fin_{p['id']}", disabled=not preenchido):
+                df_pedidos.at[idx, 'status'] = "Concluído"
+                df_pedidos.at[idx, 'total'] = t_real
+                df_pedidos.at[idx, 'itens'] = json.dumps(itens_list)
+                conn.update(worksheet="Pedidos", data=df_pedidos)
+                st.cache_data.clear(); st.rerun()
