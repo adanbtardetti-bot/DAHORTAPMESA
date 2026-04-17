@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import json
 import urllib.parse
+import base64
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -24,41 +25,42 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (BOTÃO HTML SEGURO) ---
+# --- FUNÇÃO DE IMPRESSÃO (NOVA TÉCNICA BASE64) ---
 def disparar_impressao_rawbt(ped):
     status_pg = ped.get('pagamento', 'A Pagar')
-    # Texto limpo e direto
+    # Texto ultra-simples para evitar erro de buffer da impressora
     texto = (
-        f"--------------------------------\n"
-        f"        @dahortapmesa 🌱\n"
-        f"--------------------------------\n"
+        f"--------------------------\n"
+        f"      DA HORTA P/ MESA\n"
+        f"--------------------------\n"
         f"{str(ped['cliente']).upper()}\n"
         f"{str(ped['endereco']).upper()}\n"
-        f"--------------------------------\n"
+        f"--------------------------\n"
         f"VALOR: R$ {float(ped['total']):.2f}\n"
-        f"PGTO: {status_pg}\n"
-        f"--------------------------------\n\n\n"
+        f"PAGTO: {status_pg}\n"
+        f"--------------------------\n"
+        f"\n\n\n\n" # Espaço para o corte do papel
     )
     
-    texto_codificado = urllib.parse.quote(texto)
-    # Link Intent para Android abrir o RawBT
-    url_rawbt = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.text={texto_codificado};end;"
+    # Codificando em Base64 para o RawBT ler como arquivo de dados puro
+    b64_texto = base64.b64encode(texto.encode('utf-8')).decode('utf-8')
     
-    # Criando o botão visualmente
+    # Intent específica para Base64 (mais estável)
+    url_rawbt = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.base64={b64_texto};end;"
+    
     botao_html = f"""
-        <a href="{url_rawbt}" target="_blank" style="text-decoration: none;">
+        <a href="{url_rawbt}" style="text-decoration: none;">
             <div style="
                 background-color: #28a745;
                 color: white;
-                padding: 12px;
+                padding: 15px;
                 text-align: center;
-                border-radius: 8px;
+                border-radius: 10px;
                 font-weight: bold;
-                font-family: Arial;
-                margin-top: 5px;
-                cursor: pointer;
+                font-size: 18px;
+                margin: 5px 0px;
             ">
-                🖨️ IMPRIMIR (RAWBT)
+                🖨️ IMPRIMIR ETIQUETA
             </div>
         </a>
     """
@@ -97,12 +99,12 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
                 st.session_state.edit_data = None
                 st.cache_data.clear()
-                st.success("Pedido enviado!")
+                st.success("Enviado para montagem!")
                 st.rerun()
 
 # --- MONTAGEM ---
 elif menu == "Montagem/Expedição":
-    st.header("📦 Montagem")
+    st.header("📦 Central de Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
     
     for idx, ped in pendentes.iterrows():
@@ -127,11 +129,11 @@ elif menu == "Montagem/Expedição":
                     st.write(f"✅ {it['nome']} - {it['qtd']} un")
                     t_real += it['subtotal']
             
-            st.markdown(f"#### Total Final: **R$ {t_real:.2f}**")
+            st.write(f"**Total: R$ {t_real:.2f}**")
             
-            col1, col2, col3, col4 = st.columns(4)
+            c1, c2, c3, c4 = st.columns(4)
             
-            if col1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
+            if c1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
                 df_pedidos.at[idx, 'status'] = "Concluído"
                 df_pedidos.at[idx, 'total'] = t_real
                 df_pedidos.at[idx, 'itens'] = json.dumps(itens)
@@ -139,20 +141,19 @@ elif menu == "Montagem/Expedição":
                 st.cache_data.clear()
                 st.rerun()
 
-            with col2:
-                # Agora chamamos a função que renderiza o botão HTML
+            with c2:
                 p_copy = ped.to_dict()
                 p_copy['total'] = t_real
                 disparar_impressao_rawbt(p_copy)
 
-            if col3.button("✏️ Editar", key=f"e_{ped['id']}"):
+            if c3.button("✏️ Editar", key=f"e_{ped['id']}"):
                 st.session_state.edit_data = ped.to_dict()
                 df_pedidos = df_pedidos.drop(idx)
                 conn.update(worksheet="Pedidos", data=df_pedidos)
                 st.cache_data.clear()
                 st.rerun()
 
-            if col4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
+            if c4.button("🗑️ Excluir", key=f"x_{ped['id']}"):
                 df_pedidos = df_pedidos.drop(idx)
                 conn.update(worksheet="Pedidos", data=df_pedidos)
                 st.cache_data.clear()
