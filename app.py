@@ -39,7 +39,7 @@ for col in colunas_pedidos:
 # --- NAVEGAÇÃO ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "📊 FINANCEIRO", "🥦 ESTOQUE"])
 
-# --- ABA 1, 2, 3 e 4 (MANTIDAS EXATAMENTE COMO VOCÊ GOSTA) ---
+# --- ABAS 1 A 4 (MANTIDAS) ---
 with tab1:
     st.header("🛒 Novo Pedido")
     with st.form("f_venda", clear_on_submit=True):
@@ -105,7 +105,7 @@ with tab4:
                 st.write(f"Endereço: {ped['endereco']}")
                 st.write(f"Status: {ped['pagamento']}")
 
-# --- ABA 5: FINANCEIRO (PADRONIZADO E COM COMPARTILHAMENTO) ---
+# --- ABA 5: FINANCEIRO (ATUALIZADA COM VALOR POR ITEM) ---
 with tab5:
     st.header("📊 Financeiro")
     tipo_view = st.radio("Selecione:", ["Visão Diária", "Relatório por Período"], horizontal=True)
@@ -114,7 +114,6 @@ with tab5:
     if not concluidos.empty:
         concluidos['dt_obj'] = pd.to_datetime(concluidos['data'], format='%d/%m/%Y', errors='coerce')
         
-        # Define qual grupo de dados usar com base na escolha
         if tipo_view == "Visão Diária":
             dia_f = st.date_input("Data do Panorama:", datetime.now(), format="DD/MM/YYYY")
             dia_f_str = dia_f.strftime("%d/%m/%Y")
@@ -128,38 +127,58 @@ with tab5:
             titulo_rel = f"RELATÓRIO PERÍODO: {d_ini.strftime('%d/%m/%Y')} até {d_fim.strftime('%d/%m/%Y')}"
 
         if not df_atual.empty:
-            # Cards de Resumo (Igual para ambos)
-            c1, c2, c3 = st.columns(3)
             total_v = df_atual['total'].astype(float).sum()
             pago = df_atual[df_atual['pagamento'].str.upper() == "PAGO"]['total'].astype(float).sum()
+            
+            c1, c2, c3 = st.columns(3)
             c1.metric("Faturamento Total", f"R$ {total_v:.2f}")
             c2.metric("Qtd Pedidos", len(df_atual))
             c3.metric("Total Recebido", f"R$ {pago:.2f}", f"R$ {total_v - pago:.2f} a receber", delta_color="inverse")
             
-            # Tabela de Produtos (Igual para ambos)
-            st.subheader("🥦 Resumo de Itens Vendidos")
-            resumo_i = {}
-            for _, r in df_atual.iterrows():
-                for it in json.loads(r['itens']): 
-                    resumo_i[it['nome']] = resumo_i.get(it['nome'], 0) + it['qtd']
+            # Lógica para somar Qtd e Valores de cada Item
+            st.subheader("🥦 Resumo de Itens Vendidos (Qtd e Valor)")
+            resumo_i = {} # Formato: {"Nome": {"qtd": 0, "valor": 0}}
             
-            df_resumo_final = pd.DataFrame([{"Produto": k, "Qtd Total": v} for k, v in resumo_i.items()])
+            for _, r in df_atual.iterrows():
+                try:
+                    lista_itens = json.loads(r['itens'])
+                    for it in lista_itens:
+                        nome = it['nome']
+                        qtd = float(it['qtd'])
+                        sub = float(it['subtotal'])
+                        
+                        if nome not in resumo_i:
+                            resumo_i[nome] = {"qtd": 0.0, "valor": 0.0}
+                        
+                        resumo_i[nome]["qtd"] += qtd
+                        resumo_i[nome]["valor"] += sub
+                except: pass
+            
+            # Criando DataFrame para a tabela
+            dados_tabela = []
+            for nome, valores in resumo_i.items():
+                dados_tabela.append({
+                    "Produto": nome,
+                    "Qtd Total": valores["qtd"],
+                    "Faturamento (R$)": f"{valores['valor']:.2f}"
+                })
+            
+            df_resumo_final = pd.DataFrame(dados_tabela)
             st.table(df_resumo_final)
 
-            # Botão para Gerar Relatório de Texto (WhatsApp/Salvar)
+            # Botão para Gerar Relatório de Texto
             st.divider()
             txt_share = f"*{titulo_rel}*\n\n"
             txt_share += f"💰 Faturamento: R$ {total_v:.2f}\n"
             txt_share += f"📦 Total Pedidos: {len(df_atual)}\n"
             txt_share += f"✅ Total Recebido: R$ {pago:.2f}\n"
             txt_share += f"----------------------------\n"
-            txt_share += "*ITENS VENDIDOS:*\n"
+            txt_share += "*RESUMO POR ITEM:*\n"
             for _, row in df_resumo_final.iterrows():
-                txt_share += f"• {row['Produto']}: {row['Qtd Total']}\n"
+                txt_share += f"• {row['Produto']}: {row['Qtd Total']} | R$ {row['Faturamento (R$)']}\n"
             
             st.subheader("📱 Compartilhar Relatório")
             st.text_area("Copie o texto abaixo:", txt_share, height=200)
-            
             url_zap_rel = f"https://wa.me/?text={urllib.parse.quote(txt_share)}"
             st.markdown(f'''<a href="{url_zap_rel}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;">📱 ENVIAR RELATÓRIO NO WHATSAPP</div></a>''', unsafe_allow_html=True)
         else:
