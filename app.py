@@ -20,7 +20,7 @@ def carregar_dados(aba):
 df_produtos = carregar_dados("Produtos")
 df_pedidos = carregar_dados("Pedidos")
 
-# Garante colunas
+# Blindagem de colunas
 for col in ["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"]:
     if col not in df_pedidos.columns: df_pedidos[col] = ""
 
@@ -29,20 +29,18 @@ tabs = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO"
 
 # --- 1. NOVO PEDIDO ---
 with tabs[0]:
-    if "f_id" not in st.session_state: st.session_state.f_id = 0
-    f = st.session_state.f_id
-    
-    nome = st.text_input("Nome do Cliente", key=f"n{f}").upper()
-    ende = st.text_input("Endereço", key=f"e{f}").upper()
-    obse = st.text_area("Observação", key=f"o{f}").upper() # Campo adicionado conforme pedido
-    pago_check = st.checkbox("Pago", key=f"p{f}")
+    f_id = st.session_state.get("f_id", 0)
+    nome = st.text_input("Nome do Cliente", key=f"n{f_id}").upper()
+    ende = st.text_input("Endereço", key=f"e{f_id}").upper()
+    obse = st.text_area("Observação", key=f"o{f_id}").upper()
+    pago_check = st.checkbox("Pago", key=f"p{f_id}")
     
     venda, total_est = [], 0.0
     if not df_produtos.empty:
         ativos = df_produtos[df_produtos['status'].astype(str).str.lower() == 'ativo']
         for _, r in ativos.iterrows():
             c1, c2 = st.columns([4, 1])
-            qtd = c2.number_input(f"{r['nome']} (R$ {r['preco']})", min_value=0, step=1, key=f"it{r['id']}{f}")
+            qtd = c2.number_input(f"{r['nome']} (R$ {r['preco']})", min_value=0, step=1, key=f"it{r['id']}{f_id}")
             if qtd > 0:
                 p_unit = float(str(r['preco']).replace(',', '.'))
                 sub = 0.0 if str(r['tipo']).upper() == "KG" else (qtd * p_unit)
@@ -55,7 +53,7 @@ with tabs[0]:
             nid = int(pd.to_numeric(df_pedidos['id'], errors='coerce').max() + 1) if not df_pedidos.empty else 1
             novo = pd.DataFrame([{"id": nid, "cliente": nome, "endereco": ende, "obs": obse, "itens": json.dumps(venda), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "PAGO" if pago_check else "A PAGAR"}])
             conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
-            st.session_state.f_id += 1
+            st.session_state["f_id"] = f_id + 1
             st.rerun()
 
 # --- 2. COLHEITA ---
@@ -70,8 +68,8 @@ with tabs[1]:
                     soma[it['nome']] = soma.get(it['nome'], 0) + it['qtd']
             except: pass
         
-        resumo_c = [{"Produto": k, "Quantidade Total": v} for k, v in soma.items()]
-        st.table(pd.DataFrame(resumo_c))
+        df_colheita = pd.DataFrame([{"Produto": k, "Quantidade Total": v} for k, v in soma.items()])
+        st.table(df_colheita)
         
         texto_w = "*LISTA DE COLHEITA*\n" + "\n".join([f"- {k}: {v}" for k, v in soma.items()])
         link_w = f"https://wa.me/?text={urllib.parse.quote(texto_w)}"
@@ -83,7 +81,7 @@ with tabs[2]:
     pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
     for idx, p in pend.iterrows():
         with st.container(border=True):
-            st.write(f"**Cliente:** {p['cliente']}") # Endereço removido conforme pedido
+            st.write(f"**Cliente:** {p['cliente']}")
             its, tf, ok = json.loads(p['itens']), 0.0, True
             for i, it in enumerate(its):
                 if str(it['tipo']).upper() == "KG":
@@ -94,7 +92,6 @@ with tabs[2]:
                 else:
                     st.write(f"{it['nome']} - {it['qtd']} UN"); tf += float(it['subtotal'])
             
-            # Impressão RawBT
             txt_pago = "PAGO" if p['pagamento'] == "PAGO" else f"VALOR: RS {tf:.2f}"
             cmd = f"\x1b\x61\x01\x1b\x21\x10{p['cliente']}\n\x1b\x21\x00{p['endereco']}\n\x1b\x21\x08{txt_pago}\n\n\n"
             b64 = base64.b64encode(cmd.encode('latin-1')).decode('utf-8')
@@ -104,7 +101,7 @@ with tabs[2]:
             if st.button("MARCAR PAGO", key=f"pg{idx}"):
                 df_pedidos.at[idx, 'pagamento'] = "PAGO"; conn.update(worksheet="Pedidos", data=df_pedidos); st.rerun()
             if st.button("EXCLUIR", key=f"ex{idx}"):
-                df_pedidos = df_pedidos.drop(idx); conn.update(worksheet="Pedidos", data=df_pedidos); st.rerun()
+                df_atualizado = df_pedidos.drop(idx); conn.update(worksheet="Pedidos", data=df_atualizado); st.rerun()
             if st.button("SALVAR PEDIDO", key=f"sv{idx}", disabled=not ok):
                 df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = tf; df_pedidos.at[idx, 'itens'] = json.dumps(its)
                 conn.update(worksheet="Pedidos", data=df_pedidos); st.rerun()
@@ -112,39 +109,67 @@ with tabs[2]:
 # --- 4. HISTÓRICO ---
 with tabs[3]:
     st.header("Histórico")
-    data_sel = st.date_input("Data").strftime("%d/%m/%Y")
+    data_sel = st.date_input("Filtrar Data", datetime.now()).strftime("%d/%m/%Y")
     h_fil = df_pedidos[(df_pedidos['status'].str.lower() == "concluído") & (df_pedidos['data'] == data_sel)]
     
     for idx, p in h_fil.iterrows():
-        with st.expander(f"{p['cliente']} - {p['endereco']} - R$ {p['total']:.2f}"):
-            if st.button("PAGO", key=f"h_pg{idx}"):
-                df_pedidos.at[idx, 'pagamento'] = "PAGO"; conn.update(worksheet="Pedidos", data=df_pedidos); st.rerun()
+        # Card compacta com Nome, Endereço e Valor
+        with st.expander(f"👤 {p['cliente']} | 📍 {p['endereco']} | 💰 R$ {float(p['total']):.2f}"):
+            st.write("**Detalhes do Pedido:**")
+            itens_h = json.loads(p['itens'])
+            texto_recibo = f"*RECIBO HORTA DA MESA*\n*Cliente:* {p['cliente']}\n"
+            for it in itens_h:
+                st.write(f"- {it['nome']}: {it['qtd']} {it['tipo']} -> R$ {float(it['subtotal']):.2f}")
+                texto_recibo += f"- {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
             
-            # Recibo WhatsApp
-            msg = f"RECIBO: {p['cliente']}\nTotal: R$ {p['total']:.2f}"
-            st.markdown(f'[Gera Recibo WhatsApp](https://wa.me/?text={urllib.parse.quote(msg)})')
-            # Botão de impressão repetido conforme pedido
-            st.markdown(f'[Imprimir Etiqueta]({url_p})') 
+            st.write(f"**Pagamento:** {p['pagamento']}")
+            texto_recibo += f"*TOTAL:* R$ {float(p['total']):.2f}\n*Status:* {p['pagamento']}"
+            
+            # Comandos de impressão
+            txt_pago_h = "PAGO" if p['pagamento'] == "PAGO" else f"VALOR: RS {p['total']:.2f}"
+            cmd_h = f"\x1b\x61\x01\x1b\x21\x10{p['cliente']}\n\x1b\x21\x00{p['endereco']}\n\x1b\x21\x08{txt_pago_h}\n\n\n"
+            b64_h = base64.b64encode(cmd_h.encode('latin-1')).decode('utf-8')
+            url_h = f"intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+
+            c1, c2, c3 = st.columns(3)
+            with c1: st.markdown(f'[🖨️ Imprimir Etiqueta]({url_h})')
+            with c2: 
+                if st.button("PAGO", key=f"btn_pago_h{idx}"):
+                    df_pedidos.at[idx, 'pagamento'] = "PAGO"
+                    conn.update(worksheet="Pedidos", data=df_pedidos); st.rerun()
+            with c3: 
+                link_recibo = f"https://wa.me/?text={urllib.parse.quote(texto_recibo)}"
+                st.markdown(f'[📲 Recibo WhatsApp]({link_recibo})')
 
 # --- 5. FINANCEIRO ---
 with tabs[4]:
+    st.header("Financeiro")
     hoje = datetime.now().strftime("%d/%m/%Y")
     df_h = df_pedidos[(df_pedidos['data'] == hoje) & (df_pedidos['status'].str.lower() == "concluído")]
+    
     st.subheader(f"Panorama Geral {hoje}")
     if not df_h.empty:
         for _, r in df_h.iterrows():
-            st.write(f"{r['cliente']}: R$ {r['total']:.2f}")
-        st.write(f"**TOTAL DO DIA: R$ {df_h['total'].sum():.2f}**")
+            st.write(f"- {r['cliente']}: R$ {float(r['total']):.2f}")
+        st.write(f"**TOTAL DO DIA: R$ {df_h['total'].astype(float).sum():.2f}**")
     
     st.divider()
-    st.subheader("Filtro por Período")
-    # Filtro de período e relatório de grupo (seleção via checkbox)
-    df_periodo = df_pedidos[df_pedidos['status'].str.lower() == "concluído"]
-    sel_pedidos = st.multiselect("Selecione Pedidos para Relatório", df_periodo['cliente'].unique())
-    if sel_pedidos:
-        df_grupo = df_periodo[df_periodo['cliente'].isin(sel_pedidos)]
-        st.write(f"Total Grupo: R$ {df_grupo['total'].sum():.2f}")
-        st.dataframe(df_grupo)
+    st.subheader("Resumo por Período / Relatório de Grupo")
+    df_concluido = df_pedidos[df_pedidos['status'].str.lower() == "concluído"]
+    if not df_concluido.empty:
+        # Relatório de grupo específico (Checkbox)
+        st.write("Marque os pedidos para o relatório de grupo:")
+        lista_clientes = df_concluido['cliente'].unique()
+        selecionados = []
+        for c in lista_clientes:
+            if st.checkbox(c, key=f"check_fin_{c}"):
+                selecionados.append(c)
+        
+        if selecionados:
+            df_selecionado = df_concluido[df_concluido['cliente'].isin(selecionados)]
+            st.write("### Relatório do Grupo")
+            st.dataframe(df_selecionado[['cliente', 'data', 'total', 'pagamento']])
+            st.write(f"**Total arrecadado no grupo: R$ {df_selecionado['total'].astype(float).sum():.2f}**")
 
 # --- 6. ESTOQUE ---
 with tabs[5]:
@@ -158,10 +183,10 @@ with tabs[5]:
     
     for i, r in df_produtos.iterrows():
         c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
-        c1.write(f"{r['nome']} - R$ {r['preco']}")
+        c1.write(f"**{r['nome']}** - R$ {r['preco']}")
         if c2.button("🚫" if r['status'] == "ativo" else "✅", key=f"at{i}"):
             df_produtos.at[i, 'status'] = "inativo" if r['status'] == "ativo" else "ativo"
             conn.update(worksheet="Produtos", data=df_produtos); st.rerun()
-        if c3.button("EDITAR", key=f"ed{i}"): st.info("Use a planilha para editar preços")
+        if c3.button("EDITAR", key=f"ed{i}"): st.info("Altere na planilha")
         if c4.button("EXCLUIR", key=f"exc{i}"):
-            df_produtos = df_produtos.drop(i); conn.update(worksheet="Produtos", data=df_produtos); st.rerun()
+            df_atualizado_prod = df_produtos.drop(i); conn.update(worksheet="Produtos", data=df_atualizado_prod); st.rerun()
