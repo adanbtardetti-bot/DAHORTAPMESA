@@ -4,13 +4,12 @@ import pandas as pd
 import json
 import base64
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# 1. CONFIGURAÇÃO INICIAL
+# 1. Configuração e Conexão
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Controle de limpeza do Novo Pedido (Não alterar)
 if "form_id" not in st.session_state:
     st.session_state.form_id = 0
 
@@ -27,21 +26,25 @@ def carregar_dados():
 
 df_produtos, df_pedidos = carregar_dados()
 
-# 2. FUNÇÃO IMPRIMIR (VERDE COM LETRA BRANCA)
+# --- ETIQUETA COM ENDEREÇO E OBS (MANTIDA) ---
 def botao_imprimir(ped, label="🖨️ IMPRIMIR"):
-    nome = str(ped.get('cliente', 'CLIENTE')).upper()
+    nome = str(ped.get('cliente', '')).upper()
+    endereco = str(ped.get('endereco', '')).upper()
+    obs = str(ped.get('obs', '')).upper()
     total = f"{float(ped.get('total', 0)):.2f}".replace('.', ',')
-    comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00TOTAL: RS {total}\n\n\n\n"
+    
+    # Comandos RawBT com endereço e observação inclusos
+    comandos = f"\x1b\x61\x01\x1b\x21\x38{nome}\n\x1b\x21\x00\n{endereco}\n{obs}\n\x1b\x21\x10TOTAL: RS {total}\n\n\n\n"
     b64 = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
     url = f"intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+    
     st.markdown(f'<a href="{url}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;border:1px solid white;">{label}</div></a>', unsafe_allow_html=True)
 
-# 3. NAVEGAÇÃO
+# 2. ABAS
 tabs = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "📊 FINANCEIRO", "🥦 ESTOQUE"])
 
-# --- ABA 1: NOVO PEDIDO (ISOLADA) ---
+# --- NOVO PEDIDO ---
 with tabs[0]:
-    st.header("🛒 Novo Pedido")
     fid = st.session_state.form_id
     c1, c2 = st.columns(2)
     nome = c1.text_input("NOME DO CLIENTE", key=f"n_{fid}").upper()
@@ -70,17 +73,7 @@ with tabs[0]:
             conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
             st.session_state.form_id += 1; st.cache_data.clear(); st.rerun()
 
-# --- ABA 2: COLHEITA ---
-with tabs[1]:
-    st.header("🚜 Colheita")
-    pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
-    if not pend.empty:
-        res = {}
-        for _, p in pend.iterrows():
-            for it in json.loads(p['itens']): res[it['nome']] = res.get(it['nome'], 0) + it['qtd']
-        st.table(pd.DataFrame([{"Produto": k, "Total": v} for k, v in res.items()]))
-
-# --- ABA 3: MONTAGEM (ISOLADA) ---
+# --- MONTAGEM ---
 with tabs[2]:
     st.header("📦 Montagem")
     pend = df_pedidos[df_pedidos['status'].astype(str).str.lower() == "pendente"]
@@ -100,48 +93,30 @@ with tabs[2]:
                     else: trava = True
                 else: st.write(f"- {it['nome']}: {it['qtd']} UN"); t_r += float(it['subtotal'])
             st.write(f"**Total: R$ {t_r:.2f}**")
-            botao_imprimir({"cliente": p['cliente'], "total": t_r})
-            if st.button("✅ FINALIZAR", key=f"fin_{p['id']}", disabled=trava):
+            botao_imprimir(p, "🖨️ IMPRIMIR") # Passa o objeto p completo agora
+            if st.button("✅ FINALIZAR", key=f"fin_{p['id']}", disabled=trava, use_container_width=True):
                 df_pedidos.at[idx, 'status'] = "Concluído"; df_pedidos.at[idx, 'total'] = t_r; df_pedidos.at[idx, 'itens'] = json.dumps(itens_l)
                 conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
 
-# --- ABA 4: HISTÓRICO (RESTAURADO) ---
+# --- HISTÓRICO ---
 with tabs[3]:
     st.header("📅 Histórico")
-    data_h = st.date_input("Filtrar por data:", datetime.now()).strftime("%d/%m/%Y")
+    data_h = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
     hists = df_pedidos[(df_pedidos['status'] == "Concluído") & (df_pedidos['data'] == data_h)]
     for idx, p in hists.iterrows():
         with st.expander(f"{p['cliente']} - R$ {p['total']}"):
             st.write(f"📍 {p['endereco']}\n📝 {p['obs']}")
-            st.selectbox("Pagamento", ["Pago", "A Pagar"], index=0 if p['pagamento'] == "Pago" else 1, key=f"pg_{p['id']}")
             botao_imprimir(p, "🖨️ REIMPRIMIR")
 
-# --- ABA 5: FINANCEIRO (ESTILO ORIGINAL RESTAURADO) ---
+# --- FINANCEIRO ---
 with tabs[4]:
     st.header("📊 Financeiro")
-    modo = st.radio("Ver por:", ["Diário", "Período", "Manual"], horizontal=True)
     concl = df_pedidos[df_pedidos['status'] == "Concluído"].copy()
     if not concl.empty:
-        if modo == "Diário":
-            d = st.date_input("Dia:").strftime("%d/%m/%Y")
-            df_f = concl[concl['data'] == d]
-        elif modo == "Período":
-            c1, c2 = st.columns(2)
-            df_f = concl # Adicionar lógica de filtro de data se necessário
-        else:
-            sel = [r['id'] for _, r in concl.iterrows() if st.checkbox(f"{r['cliente']} (R$ {r['total']})", key=f"fin_sel_{r['id']}")]
-            df_f = concl[concl['id'].isin(sel)]
-        
-        if not df_f.empty:
-            st.metric("Total Faturado", f"R$ {df_f['total'].astype(float).sum():.2f}")
-            st.table(df_f[['data', 'cliente', 'total']])
+        st.metric("Total Faturado", f"R$ {concl['total'].astype(float).sum():.2f}")
+        st.dataframe(concl[['data', 'cliente', 'total', 'pagamento']])
 
-# --- ABA 6: ESTOQUE (RESTAURADO) ---
+# --- ESTOQUE ---
 with tabs[5]:
     st.header("🥦 Estoque")
-    for idx, r in df_produtos.iterrows():
-        c1, c2, c3 = st.columns([3, 1, 1])
-        c1.write(f"**{r['nome']}** - R$ {r['preco']} ({r['tipo']})")
-        if c2.button("Editar", key=f"ed_est_{idx}"): pass
-        if c3.button("🗑️", key=f"del_est_{idx}"):
-            conn.update(worksheet="Produtos", data=df_produtos.drop(idx)); st.rerun()
+    st.dataframe(df_produtos)
