@@ -36,9 +36,6 @@ for col in colunas_pedidos:
     if col not in df_pedidos.columns:
         df_pedidos[col] = ""
 
-if 'edit_data' not in st.session_state:
-    st.session_state.edit_data = None
-
 # --- NAVEGAÇÃO ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🛒 NOVO", "🚜 COLHEITA", "📦 MONTAGEM", "📅 HISTÓRICO", "🥦 ESTOQUE"])
 
@@ -65,7 +62,7 @@ def disparar_impressao_rawbt(ped, label="IMPRIMIR ETIQUETA"):
         st.markdown(f'''<a href="{url_rawbt}" style="text-decoration:none;"><div style="background-color:#28a745;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">🖨️ {label}</div></a>''', unsafe_allow_html=True)
     except: pass
 
-# --- ABA 1: NOVO ---
+# --- ABAS NOVO, COLHEITA E MONTAGEM (MANTIDAS) ---
 with tab1:
     st.header("🛒 Novo Pedido")
     with st.form("f_venda", clear_on_submit=True):
@@ -85,7 +82,6 @@ with tab1:
                 novo = pd.DataFrame([{"id": prox_id, "cliente": c, "endereco": e, "itens": json.dumps(itens_sel), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": 0.0, "pagamento": "Pago" if fp else "A Pagar"}])
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True)); st.cache_data.clear(); st.rerun()
 
-# --- ABA 2: COLHEITA ---
 with tab2:
     st.header("🚜 Colheita")
     pend = df_pedidos[df_pedidos['status'] == "Pendente"] if not df_pedidos.empty else pd.DataFrame()
@@ -97,7 +93,6 @@ with tab2:
             except: pass
         st.table(pd.DataFrame([{"Produto": k, "Qtd": v} for k, v in soma.items()]))
 
-# --- ABA 3: MONTAGEM ---
 with tab3:
     st.header("📦 Montagem")
     pend = df_pedidos[df_pedidos['status'] == "Pendente"] if not df_pedidos.empty else pd.DataFrame()
@@ -121,44 +116,55 @@ with tab3:
                     conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
             except: pass
 
-# --- ABA 4: HISTÓRICO ---
+# --- ABA 4: HISTÓRICO COM FILTRO ---
 with tab4:
-    st.header("📅 Histórico")
+    st.header("📅 Histórico de Pedidos")
+    
     concl = df_pedidos[df_pedidos['status'] == "Concluído"] if not df_pedidos.empty else pd.DataFrame()
+    
     if not concl.empty:
-        for data, grupo in concl.groupby('data', sort=False):
-            st.markdown(f"#### 📅 {data}")
-            for idx, ped in grupo.iterrows():
-                cliente_nome = limpar_nan(ped['cliente'])
-                valor_total = ped['total']
-                pgto_status = limpar_nan(ped['pagamento']).upper()
-                
-                with st.expander(f"👤 {cliente_nome} - R$ {valor_total} ({pgto_status})"):
-                    st.write(f"📍 Endereço: {limpar_nan(ped['endereco'])}")
-                    
-                    # Gerar texto do recibo e exibir itens
-                    try:
-                        lista_itens = json.loads(ped['itens'])
-                        txt_recibo = f"*DA HORTA PRA MESA - RECIBO*\n\n*Cliente:* {cliente_nome}\n"
-                        for it in lista_itens:
-                            st.write(f"- {it['nome']}: R$ {float(it['subtotal']):.2f}")
-                            txt_recibo += f"• {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
-                        txt_recibo += f"\n*TOTAL: R$ {float(valor_total):.2f}*\n*Status:* {pgto_status}"
-                    except: txt_recibo = ""
+        # Barra de Busca por Data ou Nome
+        busca = st.text_input("🔍 FILTRAR POR DATA OU NOME (Ex: 17/04 ou João)", "").upper()
+        
+        # Filtra o dataframe com base na busca
+        if busca:
+            concl = concl[
+                concl['data'].str.contains(busca, case=False, na=False) | 
+                concl['cliente'].str.contains(busca, case=False, na=False)
+            ]
 
-                    st.divider()
+        if concl.empty:
+            st.warning("Nenhum pedido encontrado para essa busca.")
+        else:
+            # Agrupa e exibe
+            for data, grupo in concl.groupby('data', sort=False):
+                st.markdown(f"### 📅 {data}")
+                for idx, ped in grupo.iterrows():
+                    cliente_nome = limpar_nan(ped['cliente'])
+                    pgto_status = limpar_nan(ped['pagamento']).upper()
                     
-                    # 1. Impressão
-                    disparar_impressao_rawbt(ped, "REIMPRIMIR ETIQUETA")
-                    
-                    # 2. WhatsApp (Botão Verde Direto)
-                    url_zap = f"https://wa.me/?text={urllib.parse.quote(txt_recibo)}"
-                    st.markdown(f'''<a href="{url_zap}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">📱 ENVIAR RECIBO WHATSAPP</div></a>''', unsafe_allow_html=True)
-                    
-                    # 3. Alterar Pagamento (Botão Cinza Streamlit)
-                    if st.button("💳 ALTERAR STATUS PAGAMENTO", key=f"alt_{ped['id']}", use_container_width=True):
-                        df_pedidos.at[idx, 'pagamento'] = "A Pagar" if pgto_status == "PAGO" else "Pago"
-                        conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
+                    with st.expander(f"👤 {cliente_nome} - R$ {ped['total']} ({pgto_status})"):
+                        st.write(f"📍 Endereço: {limpar_nan(ped['endereco'])}")
+                        try:
+                            lista_itens = json.loads(ped['itens'])
+                            txt_recibo = f"*DA HORTA PRA MESA - RECIBO*\n\n*Cliente:* {cliente_nome}\n"
+                            for it in lista_itens:
+                                st.write(f"- {it['nome']}: R$ {float(it['subtotal']):.2f}")
+                                txt_recibo += f"• {it['nome']}: R$ {float(it['subtotal']):.2f}\n"
+                            txt_recibo += f"\n*TOTAL: R$ {float(ped['total']):.2f}*\n*Status:* {pgto_status}"
+                        except: txt_recibo = ""
+
+                        st.divider()
+                        disparar_impressao_rawbt(ped, "REIMPRIMIR ETIQUETA")
+                        
+                        url_zap = f"https://wa.me/?text={urllib.parse.quote(txt_recibo)}"
+                        st.markdown(f'''<a href="{url_zap}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-bottom:10px;">📱 ENVIAR RECIBO WHATSAPP</div></a>''', unsafe_allow_html=True)
+                        
+                        if st.button("💳 ALTERAR STATUS PAGAMENTO", key=f"alt_{ped['id']}", use_container_width=True):
+                            df_pedidos.at[idx, 'pagamento'] = "A Pagar" if pgto_status == "PAGO" else "Pago"
+                            conn.update(worksheet="Pedidos", data=df_pedidos); st.cache_data.clear(); st.rerun()
+    else:
+        st.info("Nenhum pedido concluído ainda.")
 
 # --- ABA 5: ESTOQUE ---
 with tab5:
