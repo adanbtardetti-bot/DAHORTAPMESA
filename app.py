@@ -1,7 +1,6 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
 import json
 import base64
 
@@ -24,44 +23,56 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (USANDO A LÓGICA QUE FUNCIONOU) ---
+# --- FUNÇÃO DE IMPRESSÃO (REGRA: SÓ PAGO) ---
 def disparar_impressao_rawbt(ped):
-    status_pg = str(ped.get('pagamento', 'A PAGAR')).upper()
-    nome = str(ped['cliente']).upper()
-    endereco = str(ped['endereco']).upper()
+    # Limpeza de campos para evitar NAN
+    nome = str(ped.get('cliente', '')).strip().upper() if pd.notna(ped.get('cliente')) else ""
+    endereco = str(ped.get('endereco', '')).strip().upper() if pd.notna(ped.get('endereco')) else ""
+    
+    # Lógica de Pagamento: SÓ aparece se for exatamente "PAGO"
+    status_raw = str(ped.get('pagamento', '')).strip().upper()
+    exibir_pg = "PAGO" if status_raw == "PAGO" else ""
+    
     valor_formatado = f"{float(ped['total']):.2f}".replace('.', ',')
 
-    # COMANDOS ESC/POS (A MÁGICA DO SEU HTML)
-    # \x1b\x61\x01 = Centralizar
-    # \x1b\x21\x38 = Negrito + Fonte Grande
-    # \x1b\x21\x00 = Fonte Normal
-    comandos = (
-        "\x1b\x61\x01" +        # Centralizar
-        nome + "\n" +           # Nome do Cliente
-        endereco + "\n" +       # Endereço
-        "----------------\n" + 
-        "\x1b\x21\x38" +        # Liga Fonte Grande e Negrito
-        "RS " + valor_formatado + "\n" + 
-        "\x1b\x21\x00" +        # Volta ao normal
-        status_pg + "\n" +
-        "\n\n\n"                # Espaço final
-    )
+    # COMANDOS ESC/POS
+    comandos = "\x1b\x61\x01"  # Centralizar
     
-    # Codificação idêntica ao seu script OK
-    b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
-    url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+    # Nome e Endereço em FONTE GRANDE
+    if nome:
+        comandos += "\x1b\x21\x38" + nome + "\n"
+    if endereco:
+        comandos += "\x1b\x21\x38" + endereco + "\n"
     
-    st.markdown(
-        f"""
-        <a href="{url_rawbt}" style="text-decoration: none;">
-            <div style="background-color: #28a745; color: white; padding: 15px; text-align: center; 
-            border-radius: 10px; font-weight: bold; font-size: 20px;">
-                🖨️ IMPRIMIR AGORA
-            </div>
-        </a>
-        """, 
-        unsafe_allow_html=True
-    )
+    comandos += "\x1b\x21\x00" + "----------------\n" # Linha normal
+    
+    # Valor em FONTE NORMAL
+    comandos += "TOTAL: RS " + valor_formatado + "\n"
+    
+    # Status de Pagamento (SÓ aparece se for PAGO)
+    if exibir_pg:
+        comandos += exibir_pg + "\n"
+        
+    comandos += "\n\n\n" # Espaço para corte
+    
+    try:
+        # Codificação compatível com o RawBT
+        b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
+        url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+        
+        st.markdown(
+            f"""
+            <a href="{url_rawbt}" style="text-decoration: none;">
+                <div style="background-color: #28a745; color: white; padding: 15px; text-align: center; 
+                border-radius: 10px; font-weight: bold; font-size: 20px; cursor: pointer;">
+                    🖨️ IMPRIMIR ETIQUETA
+                </div>
+            </a>
+            """, 
+            unsafe_allow_html=True
+        )
+    except:
+        st.error("Erro nos caracteres da etiqueta.")
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
@@ -124,7 +135,7 @@ elif menu == "Montagem/Expedição":
                     st.write(f"✅ {it['nome']} - {it['qtd']} un")
                     t_real += it['subtotal']
             
-            st.markdown(f"### Total: R$ {t_real:.2f}")
+            st.write(f"**Total: R$ {t_real:.2f}**")
             
             c1, c2, c3, c4 = st.columns(4)
             
