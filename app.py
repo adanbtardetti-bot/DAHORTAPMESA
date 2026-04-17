@@ -19,61 +19,54 @@ def carregar_dados(aba):
 df_produtos = carregar_dados("Produtos")
 df_pedidos = carregar_dados("Pedidos")
 
-# --- CONTROLE DE EDIÇÃO ---
 if 'edit_data' not in st.session_state:
     st.session_state.edit_data = None
 
-# --- NAVEGAÇÃO ---
-menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque", "Financeiro"])
+menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO RAWBT (DIRETA) ---
+# --- FUNÇÃO DE IMPRESSÃO (AJUSTADA PARA NÃO SAIR EM BRANCO) ---
 def disparar_impressao_rawbt(ped):
-    # Criando o texto da etiqueta para a térmica
     status_pg = ped.get('pagamento', 'A Pagar')
-    texto_etiqueta = f"""
-@dahortapmesa 🌱
---------------------------------
-CLIENTE: {ped['cliente']}
-END: {ped['endereco']}
---------------------------------
-TOTAL: R$ {float(ped['total']):.2f}
-PAGTO: {status_pg}
---------------------------------
-    """
-    # Link especial para chamar o app RawBT no Android
-    encoded_text = urllib.parse.quote(texto_etiqueta)
+    # Texto formatado com separadores claros para a impressora
+    texto = f"--------------------------------\n"
+    texto += f"      @dahortapmesa 🌱\n"
+    texto += f"--------------------------------\n"
+    texto += f"CLIENTE: {ped['cliente']}\n"
+    texto += f"END: {ped['endereco']}\n"
+    texto += f"--------------------------------\n"
+    texto += f"TOTAL: R$ {float(ped['total']):.2f}\n"
+    texto += f"PGTO: {status_pg}\n"
+    texto += f"--------------------------------\n\n\n"
+    
+    encoded_text = urllib.parse.quote(texto)
+    # Link direto que o RawBT reconhece melhor
     rawbt_url = f"intent:#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.text={encoded_text};end;"
     
-    st.markdown(f'<a href="{rawbt_url}" target="_blank" style="text-decoration:none;"><button style="width:100%; padding:15px; background:#000; color:#fff; border-radius:10px; font-weight:bold; border:none;">🖨️ DISPARAR IMPRESSORA (RAWBT)</button></a>', unsafe_allow_html=True)
+    st.markdown(f'<a href="{rawbt_url}" target="_blank"><button style="width:100%; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold;">🖨️ IMPRIMIR ETIQUETA</button></a>', unsafe_allow_html=True)
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
     
-    if edit:
-        st.warning(f"Editando Pedido de: {edit['cliente']}")
-        if st.button("❌ Cancelar Edição"):
-            st.session_state.edit_data = None
-            st.rerun()
-
     with st.form("form_venda"):
         c = st.text_input("Nome do Cliente", value=edit['cliente'] if edit else "")
         e = st.text_input("Endereço", value=edit['endereco'] if edit else "")
-        pg = st.selectbox("Pagamento", ["A Pagar", "Pago", "Pix", "Dinheiro"], index=0)
+        pg = st.selectbox("Pagamento", ["A Pagar", "Pago", "Pix", "Dinheiro"])
         
+        st.write("---")
         itens_p = []
         for _, p in df_produtos.iterrows():
-            # Busca quantidade anterior se for edição
             def_qtd = 0
             if edit:
                 for oi in json.loads(edit['itens']):
-                    if oi['nome'] == p['nome']: def_qtd = oi.get('qtd', 1)
+                    if oi['nome'] == p['nome']: def_qtd = int(oi.get('qtd', 0))
             
             qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, value=def_qtd, key=f"p_{p['id']}")
             if qtd > 0:
-                sub = (qtd * p['preco']) if p['tipo'] == "Unidade" else 0.0
-                itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": sub})
+                # Subtotal base para referência na montagem
+                sub = (qtd * p['preco']) 
+                itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "preco_unit": p['preco'], "subtotal": sub})
         
         if st.form_submit_button("✅ Salvar Pedido"):
             if c and itens_p:
@@ -86,7 +79,7 @@ if menu == "Novo Pedido":
                 conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
                 st.session_state.edit_data = None
                 st.cache_data.clear()
-                st.success("Pedido enviado!")
+                st.success("Pedido enviado para montagem!")
                 st.rerun()
 
 # --- TELA: MONTAGEM ---
@@ -101,26 +94,34 @@ elif menu == "Montagem/Expedição":
             t_real = 0.0
             trava_kg = False
             
-            # MOSTRAR TODOS OS PRODUTOS (UNIDADE E KG)
             for i, it in enumerate(itens):
                 if it['tipo'] == "KG":
-                    v = st.number_input(f"Balança R$ ({it['nome']})", min_value=0.0, key=f"b_{ped['id']}_{i}")
-                    it['subtotal'] = v
-                    if v <= 0: trava_kg = True
+                    # Exibe o cálculo sugerido (Qtd encomendada x Preço do cadastro)
+                    sugestao = it.get('subtotal', 0)
+                    st.write(f"⚖️ **{it['nome']}** | Sugerido: R$ {sugestao:.2f}")
+                    
+                    # Campo de texto vazio para valor real da balança
+                    v_input = st.text_input(f"Valor Balança R$:", key=f"v_{ped['id']}_{i}", placeholder="Digite o valor...")
+                    
+                    if v_input:
+                        try:
+                            v_float = float(v_input.replace(',', '.'))
+                            it['subtotal'] = v_float
+                            t_real += v_float
+                        except:
+                            st.error("Digite apenas números")
+                            trava_kg = True
+                    else:
+                        trava_kg = True # Campo vazio trava o Concluir
                 else:
                     st.write(f"✅ {it['nome']} - {it['qtd']} un")
                     t_real += it['subtotal']
-                
-            # Soma os totais de KG após os inputs
-            for it in itens:
-                if it['tipo'] == "KG": t_real += it.get('subtotal', 0)
             
-            st.markdown(f"#### Total: R$ {t_real:.2f}")
+            st.markdown(f"#### Total Final: **R$ {t_real:.2f}**")
             
-            # BOTÕES EM LINHA ÚNICA
             col1, col2, col3, col4 = st.columns(4)
             
-            if col1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg):
+            if col1.button("✅ Concluir", key=f"f_{ped['id']}", disabled=trava_kg, type="primary"):
                 df_pedidos.at[idx, 'status'] = "Concluído"
                 df_pedidos.at[idx, 'total'] = t_real
                 df_pedidos.at[idx, 'itens'] = json.dumps(itens)
@@ -129,10 +130,9 @@ elif menu == "Montagem/Expedição":
                 st.rerun()
 
             with col2:
-                # O botão de etiqueta agora é um link direto RawBT
-                ped_copy = ped.to_dict()
-                ped_copy['total'] = t_real
-                disparar_impressao_rawbt(ped_copy)
+                p_copy = ped.to_dict()
+                p_copy['total'] = t_real
+                disparar_impressao_rawbt(p_copy)
 
             if col3.button("✏️ Editar", key=f"e_{ped['id']}"):
                 st.session_state.edit_data = ped.to_dict()
