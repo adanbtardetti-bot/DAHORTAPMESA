@@ -3,6 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import json
 import base64
+from datetime import datetime
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -23,13 +24,12 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (REGRA: SÓ PAGO) ---
+# --- FUNÇÃO DE IMPRESSÃO (REGRAS DE STATUS DE PAGAMENTO ATUALIZADAS) ---
 def disparar_impressao_rawbt(ped):
-    # Limpeza de campos para evitar NAN
     nome = str(ped.get('cliente', '')).strip().upper() if pd.notna(ped.get('cliente')) else ""
     endereco = str(ped.get('endereco', '')).strip().upper() if pd.notna(ped.get('endereco')) else ""
     
-    # Lógica de Pagamento: SÓ aparece se for exatamente "PAGO"
+    # Se o campo pagamento for "PAGO", imprime. Caso contrário, fica vazio.
     status_raw = str(ped.get('pagamento', '')).strip().upper()
     exibir_pg = "PAGO" if status_raw == "PAGO" else ""
     
@@ -38,25 +38,24 @@ def disparar_impressao_rawbt(ped):
     # COMANDOS ESC/POS
     comandos = "\x1b\x61\x01"  # Centralizar
     
-    # Nome e Endereço em FONTE GRANDE
+    # Nome e Endereço em FONTE GRANDE (\x1b\x21\x38)
     if nome:
         comandos += "\x1b\x21\x38" + nome + "\n"
     if endereco:
         comandos += "\x1b\x21\x38" + endereco + "\n"
     
-    comandos += "\x1b\x21\x00" + "----------------\n" # Linha normal
+    comandos += "\x1b\x21\x00" + "----------------\n"
     
     # Valor em FONTE NORMAL
     comandos += "TOTAL: RS " + valor_formatado + "\n"
     
-    # Status de Pagamento (SÓ aparece se for PAGO)
+    # Só imprime se estiver PAGO
     if exibir_pg:
         comandos += exibir_pg + "\n"
         
-    comandos += "\n\n\n" # Espaço para corte
+    comandos += "\n\n\n"
     
     try:
-        # Codificação compatível com o RawBT
         b64_texto = base64.b64encode(comandos.encode('latin-1')).decode('utf-8')
         url_rawbt = f"intent:base64,{b64_texto}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
         
@@ -64,7 +63,7 @@ def disparar_impressao_rawbt(ped):
             f"""
             <a href="{url_rawbt}" style="text-decoration: none;">
                 <div style="background-color: #28a745; color: white; padding: 15px; text-align: center; 
-                border-radius: 10px; font-weight: bold; font-size: 20px; cursor: pointer;">
+                border-radius: 10px; font-weight: bold; font-size: 20px;">
                     🖨️ IMPRIMIR ETIQUETA
                 </div>
             </a>
@@ -72,46 +71,68 @@ def disparar_impressao_rawbt(ped):
             unsafe_allow_html=True
         )
     except:
-        st.error("Erro nos caracteres da etiqueta.")
+        st.error("Erro nos caracteres.")
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
     st.header("🛒 Novo Pedido")
     edit = st.session_state.edit_data
     
-    with st.form("form_venda"):
+    with st.form("form_venda", clear_on_submit=True):
         c = st.text_input("Cliente", value=edit['cliente'] if edit else "")
         e = st.text_input("Endereço", value=edit['endereco'] if edit else "")
-        pg = st.selectbox("Pagamento", ["A Pagar", "Pago", "Pix", "Dinheiro"])
         
+        # CAMPO DE PAGAMENTO SIMPLIFICADO
+        foi_pago = st.checkbox("Marcar como PAGO", value=(edit['pagamento'] == "Pago") if edit else False)
+        
+        st.write("---")
         itens_p = []
         for _, p in df_produtos.iterrows():
             def_qtd = 0
             if edit:
-                for oi in json.loads(edit['itens']):
-                    if oi['nome'] == p['nome']: def_qtd = int(oi.get('qtd', 0))
+                try:
+                    for oi in json.loads(edit['itens']):
+                        if oi['nome'] == p['nome']: def_qtd = int(oi.get('qtd', 0))
+                except: pass
             
             qtd = st.number_input(f"{p['nome']} (R$ {p['preco']})", min_value=0, value=def_qtd, key=f"p_{p['id']}")
             if qtd > 0:
                 itens_p.append({"nome": p['nome'], "qtd": qtd, "tipo": p['tipo'], "subtotal": 0.0 if p['tipo'] == "KG" else (qtd * p['preco'])})
         
-        if st.form_submit_button("✅ Salvar Pedido"):
+        if st.form_submit_button("✅ SALVAR PEDIDO"):
             if c and itens_p:
                 prox_id = int(df_pedidos['id'].max() + 1) if not df_pedidos.empty else 1
-                novo = pd.DataFrame([{
-                    "id": prox_id, "cliente": c, "endereco": e, "itens": json.dumps(itens_p),
-                    "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), 
-                    "total": 0.0, "pagamento": pg
+                novo_pgto = "Pago" if foi_pago else "A Pagar"
+                
+                novo_df = pd.DataFrame([{
+                    "id": prox_id,
+                    "cliente": c,
+                    "endereco": e,
+                    "itens": json.dumps(itens_p),
+                    "status": "Pendente",
+                    "data": datetime.now().strftime("%d/%m/%Y"),
+                    "total": 0.0,
+                    "pagamento": novo_pgto
                 }])
-                conn.update(worksheet="Pedidos", data=pd.concat([df_pedidos, novo], ignore_index=True))
+                
+                # Salvando na planilha
+                dados_finais = pd.concat([df_pedidos, novo_df], ignore_index=True)
+                conn.update(worksheet="Pedidos", data=dados_finais)
+                
                 st.session_state.edit_data = None
                 st.cache_data.clear()
+                st.success("Pedido Salvo com Sucesso!")
                 st.rerun()
+            else:
+                st.warning("Preencha o cliente e adicione pelo menos um produto.")
 
 # --- TELA: MONTAGEM ---
 elif menu == "Montagem/Expedição":
     st.header("📦 Montagem")
     pendentes = df_pedidos[df_pedidos['status'] == "Pendente"]
+    
+    if pendentes.empty:
+        st.info("Nenhum pedido pendente.")
     
     for idx, ped in pendentes.iterrows():
         with st.container(border=True):
@@ -123,7 +144,7 @@ elif menu == "Montagem/Expedição":
             for i, it in enumerate(itens):
                 if it['tipo'] == "KG":
                     st.write(f"⚖️ **{it['nome']}**")
-                    v_input = st.text_input(f"Valor R$:", key=f"v_{ped['id']}_{i}", value="")
+                    v_input = st.text_input(f"Valor R$:", key=f"v_{ped['id']}_{i}")
                     if v_input:
                         try:
                             v_float = float(v_input.replace(',', '.'))
@@ -135,7 +156,7 @@ elif menu == "Montagem/Expedição":
                     st.write(f"✅ {it['nome']} - {it['qtd']} un")
                     t_real += it['subtotal']
             
-            st.write(f"**Total: R$ {t_real:.2f}**")
+            st.write(f"**Total: R$ {t_real:.2f}** ({ped['pagamento']})")
             
             c1, c2, c3, c4 = st.columns(4)
             
