@@ -3,7 +3,6 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import json
-import base64
 
 st.set_page_config(page_title="Horta da Mesa", layout="wide")
 
@@ -24,47 +23,42 @@ if 'edit_data' not in st.session_state:
 
 menu = st.sidebar.radio("Navegação", ["Novo Pedido", "Montagem/Expedição", "Estoque"])
 
-# --- FUNÇÃO DE IMPRESSÃO (LINK DIRETO RAWBT BASE64) ---
+# --- FUNÇÃO DE IMPRESSÃO VIA WEB-VIEW (PLANO C) ---
 def disparar_impressao_rawbt(ped):
     status_pg = ped.get('pagamento', 'A Pagar')
     
-    # Texto ultra-limpo para evitar erros de buffer
-    texto = (
-        "--------------------------------\n"
-        "        DA HORTA P/ MESA\n"
-        "--------------------------------\n"
-        f"{str(ped['cliente']).upper()}\n"
-        f"{str(ped['endereco']).upper()}\n"
-        "--------------------------------\n"
-        f"TOTAL: R$ {float(ped['total']):.2f}\n"
-        f"PAGTO: {status_pg.upper()}\n"
-        "--------------------------------\n"
-        "\n\n\n"
-    )
-    
-    # Converte para Base64
-    b64_texto = base64.b64encode(texto.encode('utf-8')).decode('utf-8')
-    
-    # Este é o link oficial que abre o RawBT e já cola o texto
-    url_rawbt = f"rawbt:base64,{b64_texto}"
-    
-    botao_html = f"""
-        <a href="{url_rawbt}">
-            <div style="
-                background-color: #000;
-                color: #fff;
-                padding: 15px;
-                text-align: center;
-                border: 2px solid #28a745;
-                border-radius: 10px;
-                font-weight: bold;
-                font-size: 20px;
-            ">
-                🖨️ IMPRIMIR AGORA
-            </div>
-        </a>
+    # Criamos uma mini-página HTML para a etiqueta
+    html_etiqueta = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; width: 280px; margin: 0; padding: 10px; color: black; background-color: white;">
+        <div style="text-align: center; border-bottom: 1px solid black; padding-bottom: 5px;">
+            <b style="font-size: 18px;">DA HORTA P/ MESA</b>
+        </div>
+        <div style="margin: 15px 0; font-size: 22px; font-weight: bold;">
+            {str(ped['cliente']).upper()}
+        </div>
+        <div style="margin-bottom: 15px; font-size: 16px;">
+            {str(ped['endereco']).upper()}
+        </div>
+        <div style="border-top: 1px solid black; padding-top: 5px; display: flex; justify-content: space-between;">
+            <b style="font-size: 18px;">R$ {float(ped['total']):.2f}</b>
+            <b style="font-size: 14px;">{status_pg.upper()}</b>
+        </div>
+        <script>
+            // Comando para abrir o diálogo de impressão assim que carregar
+            window.onload = function() {{
+                window.print();
+                setTimeout(function() {{ window.close(); }}, 500);
+            }};
+        </script>
+    </body>
+    </html>
     """
-    st.markdown(botao_html, unsafe_allow_html=True)
+    
+    # Botão que abre a etiqueta em um frame invisível ou nova aba
+    with st.expander("📄 Gerar Etiqueta"):
+        st.components.v1.html(html_etiqueta, height=350)
+        st.caption("Se a tela de impressão não abrir sozinha, clique com o botão direito e escolha Imprimir.")
 
 # --- TELA: NOVO PEDIDO ---
 if menu == "Novo Pedido":
@@ -141,6 +135,7 @@ elif menu == "Montagem/Expedição":
                 st.rerun()
 
             with c2:
+                # Agora gera a etiqueta visual que dispara a impressão
                 p_copy = ped.to_dict()
                 p_copy['total'] = t_real
                 disparar_impressao_rawbt(p_copy)
