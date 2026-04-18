@@ -26,65 +26,108 @@ STATUS_PRONTO = "pronto"
 PAGAMENTO_PAGO = "PAGO"
 PAGAMENTO_A_PAGAR = "A PAGAR"
 
-st.markdown(
-    """
-<div class="hero">
-    <div class="title">Horta Gestao</div>
-    <div class="subtitle">Pedidos, colheita, montagem e financeiro em um painel simples.</div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
+# ── Data Access Layer ────────────────────────────────────────
 
-def carregar_dados(aba):
+def ler_aba(aba: str) -> pd.DataFrame:
+    """Read and clean a Google Sheets worksheet.
+
+    Returns an empty DataFrame on failure and shows a user-visible error.
+    """
     try:
-        df = conn.read(worksheet=aba, ttl=0).dropna(how="all")
-        df.columns = [str(c).lower().strip() for c in df.columns]
-        return df.fillna('')
-    except:
+        df = conn.read(worksheet=aba, ttl=0)
+    except Exception as e:
+        st.error(f"Erro ao ler aba '{aba}': {e}")
         return pd.DataFrame()
 
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-def resumo_kpis(df):
+    # Drop fully-empty rows
+    df = df.dropna(how="all")
+
+    # Normalise column names
+    df.columns = [str(c).lower().strip() for c in df.columns]
+
+    # Drop rows that are only whitespace (ghost rows from Google Sheets)
+    mask = df.astype(str).apply(lambda r: r.str.strip().eq("").all(), axis=1)
+    df = df[~mask].reset_index(drop=True)
+
+    # Fill remaining NaN so downstream code never sees NaN
+    df = df.fillna("")
+
+    return df
+
+
+def salvar_aba(aba: str, df: pd.DataFrame):
+    """Write a DataFrame back to a Google Sheets worksheet."""
+    try:
+        conn.update(worksheet=aba, data=df)
+    except Exception as e:
+        st.error(f"Erro ao salvar aba '{aba}': {e}")
+
+
+def filtrar_status(df: pd.DataFrame, status: str) -> pd.DataFrame:
+    """Filter rows by status (case-insensitive, whitespace-tolerant)."""
+    if df.empty or "status" not in df.columns:
+        return pd.DataFrame()
+    s = df["status"].astype(str).str.strip().str.lower()
+    return df[s == status]
+
+
+def parse_float(val, default: float = 0.0) -> float:
+    """Safely convert a value to float, handling commas and blanks."""
+    try:
+        return float(str(val).strip().replace(",", "."))
+    except (ValueError, TypeError):
+        return default
+
+
+def resumo_kpis(df: pd.DataFrame) -> dict:
     if df.empty:
         return {"total": 0, "pendentes": 0, "prontos": 0, "recebido": 0.0, "areceber": 0.0}
 
-    status = df.get("status", pd.Series(dtype=str)).astype(str).str.lower()
-    pagamento = df.get("pagamento", pd.Series(dtype=str)).astype(str)
-    totais = pd.to_numeric(df.get("total", pd.Series(dtype=float)), errors="coerce").fillna(0)
-    total = len(df)
-    pend = int((status == STATUS_PENDENTE).sum())
-    pronto = int((status == STATUS_PRONTO).sum())
-    recebido = float(totais[pagamento == PAGAMENTO_PAGO].sum())
-    areceber = float(totais[pagamento == PAGAMENTO_A_PAGAR].sum())
-    return {"total": total, "pendentes": pend, "prontos": pronto, "recebido": recebido, "areceber": areceber}
+    status = df.get("status", pd.Series(dtype=str)).astype(str).str.strip().str.lower()
+    pagamento = df.get("pagamento", pd.Series(dtype=str)).astype(str).str.strip()
+    totais = df.get("total", pd.Series(dtype=float)).apply(parse_float)
+
+    return {
+        "total": len(df),
+        "pendentes": int((status == STATUS_PENDENTE).sum()),
+        "prontos": int((status == STATUS_PRONTO).sum()),
+        "recebido": float(totais[pagamento == PAGAMENTO_PAGO].sum()),
+        "areceber": float(totais[pagamento == PAGAMENTO_A_PAGAR].sum()),
+    }
 
 
-def carregar_pedidos():
-    return carregar_dados("Pedidos")
-
-
-def filtrar_status(df, status):
-    if df.empty:
-        return pd.DataFrame()
-
-    status_series = df.get("status", pd.Series(dtype=str)).astype(str).str.lower()
-    return df[status_series == status]
-
-
-def calcular_totais_financeiros(df):
+def calcular_totais_financeiros(df: pd.DataFrame):
     if df.empty:
         return 0.0, 0.0
 
-    pagamento = df.get("pagamento", pd.Series(dtype=str)).astype(str)
-    totais = pd.to_numeric(df.get("total", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    pagamento = df.get("pagamento", pd.Series(dtype=str)).astype(str).str.strip()
+    totais = df.get("total", pd.Series(dtype=float)).apply(parse_float)
     recebido = float(totais[pagamento == PAGAMENTO_PAGO].sum())
     pendente = float(totais[pagamento == PAGAMENTO_A_PAGAR].sum())
     return recebido, pendente
 
 
-df_global = carregar_dados("Pedidos")
-kpis = resumo_kpis(df_global)
+# ── Load sheets ONCE per rerun ───────────────────────────────
+
+df_pedidos = ler_aba("Pedidos")
+df_produtos = ler_aba("Produtos")
+
+# ── Hero + KPIs ──────────────────────────────────────────────
+
+st.markdown(
+    """
+<div class="hero-banner">
+    <div class="hero-title">Horta Gestao</div>
+    <div class="hero-subtitle">Pedidos, colheita, montagem e financeiro em um painel simples.</div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+kpis = resumo_kpis(df_pedidos)
 
 st.markdown(
     f"""
@@ -113,29 +156,49 @@ def render_tab_novo_pedido(tab):
         pg = c3.toggle("Pago?", key=f"p_{f}")
         o_ped = st.text_input("Observação", key=f"o_{f}")
 
-        df_p = carregar_dados("Produtos")
         carrinho = []
         total_v = 0.0
-        if not df_p.empty:
-            for _, r in df_p.iterrows():
+
+        # Validate products sheet has required columns
+        colunas_necessarias = {"nome", "preco"}
+        if df_produtos.empty:
+            st.info("Nenhum produto encontrado na aba 'Produtos'.")
+        elif not colunas_necessarias.issubset(df_produtos.columns):
+            faltando = colunas_necessarias - set(df_produtos.columns)
+            st.warning(f"Colunas ausentes na aba Produtos: {', '.join(faltando)}")
+        else:
+            for row_idx, r in df_produtos.iterrows():
+                nome = str(r.get("nome", "")).strip()
+                if not nome:
+                    continue  # skip blank product rows
+
+                p_u = parse_float(r.get("preco", 0))
+                tipo = str(r.get("tipo", "UN")).strip().upper() or "UN"
+                # Use row index as stable key fallback when id is missing/blank
+                prod_id = str(r.get("id", "")).strip() or str(row_idx)
+
                 col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
-                p_u = float(str(r.get('preco', 0)).replace(',', '.'))
-                tipo = str(r.get('tipo', 'UN')).upper()
-                col_n.markdown(f"**{r['nome']}**")
+                col_n.markdown(f"**{nome}**")
                 col_p.caption(f"R$ {p_u:.2f} / {tipo}")
-                qtd = col_q.number_input("Q", 0, step=1, key=f"q_{r['id']}_{f}", label_visibility="collapsed")
+                qtd = col_q.number_input(
+                    "Q", 0, step=1, key=f"q_{prod_id}_{f}", label_visibility="collapsed"
+                )
                 if qtd > 0:
                     sub = 0.0 if tipo == "KG" else (qtd * p_u)
                     total_v += sub
-                    carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": tipo})
-        else:
-            st.info("Nenhum produto encontrado na aba 'Produtos'.")
+                    carrinho.append(
+                        {"nome": nome, "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": tipo}
+                    )
 
-        st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>",
+            unsafe_allow_html=True,
+        )
 
         if st.button("💾 FINALIZAR PEDIDO", type="primary", key=f"btn_s_{f}"):
             if n_cli and carrinho:
-                df_v = carregar_dados("Pedidos")
+                # Fresh read before write to avoid overwriting concurrent changes
+                df_atual = ler_aba("Pedidos")
                 novo = pd.DataFrame([
                     {
                         "id": int(datetime.now().timestamp()),
@@ -149,7 +212,7 @@ def render_tab_novo_pedido(tab):
                         "obs": o_ped,
                     }
                 ])
-                conn.update(worksheet="Pedidos", data=pd.concat([df_v, novo], ignore_index=True))
+                salvar_aba("Pedidos", pd.concat([df_atual, novo], ignore_index=True))
                 st.session_state.f_id += 1
                 st.rerun()
 
@@ -158,125 +221,151 @@ def render_tab_colheita(tab):
     with tab:
         st.header("🚜 Lista de Colheita")
         st.caption("Resumo dos itens pendentes para preparar na horta.")
-        df_ped = carregar_pedidos()
-        if not df_ped.empty:
-            pend = filtrar_status(df_ped, STATUS_PENDENTE)
-            if not pend.empty:
-                resumo = {}
-                for _, ped in pend.iterrows():
-                    try:
-                        for it in json.loads(ped['itens']):
-                            chave = f"{it['nome']} ({it.get('tipo', 'UN')})"
-                            resumo[chave] = resumo.get(chave, 0) + it['qtd']
-                    except:
-                        continue
-
-                for item, qtd in resumo.items():
-                    st.write(f"🟢 **{qtd}x** {item}")
-
-                txt_z = "*COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in resumo.items()])
-                st.markdown(
-                    f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.success("Nao ha pedidos pendentes de colheita.")
-        else:
+        if df_pedidos.empty:
             st.info("Sem dados na aba 'Pedidos'.")
+            return
+
+        pend = filtrar_status(df_pedidos, STATUS_PENDENTE)
+        if pend.empty:
+            st.success("Nao ha pedidos pendentes de colheita.")
+            return
+
+        resumo = {}
+        for _, ped in pend.iterrows():
+            try:
+                for it in json.loads(ped.get("itens", "[]")):
+                    chave = f"{it['nome']} ({it.get('tipo', 'UN')})"
+                    resumo[chave] = resumo.get(chave, 0) + it['qtd']
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+
+        for item, qtd in resumo.items():
+            st.write(f"🟢 **{qtd}x** {item}")
+
+        txt_z = "*COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in resumo.items()])
+        st.markdown(
+            f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_tab_montagem(tab):
     with tab:
         st.header("⚖️ Montagem")
         st.caption("Ajuste valores dos itens por quilo e finalize os pedidos.")
-        df_m = carregar_pedidos()
-        if not df_m.empty:
-            pend_m = filtrar_status(df_m, STATUS_PENDENTE)
-            if pend_m.empty:
-                st.success("Nao ha pedidos para montar no momento.")
+        if df_pedidos.empty:
+            st.info("Sem dados na aba 'Pedidos'.")
+            return
 
-            for idx, row in pend_m.iterrows():
-                with st.expander(f"👤 {row['cliente']}", expanded=True):
-                    st.write(f"📍 {row['endereco']}")
-                    try:
-                        itens_m = json.loads(row['itens'])
-                    except Exception:
-                        st.warning("Nao foi possivel ler os itens deste pedido.")
-                        continue
+        pend_m = filtrar_status(df_pedidos, STATUS_PENDENTE)
+        if pend_m.empty:
+            st.success("Nao ha pedidos para montar no momento.")
+            return
 
-                    st.markdown("<div class='m-list-header'><span>Item</span><span>Valor</span></div>", unsafe_allow_html=True)
-                    total_m = 0.0
-                    for i, it in enumerate(itens_m):
-                        tipo = str(it.get('tipo', 'UN')).upper()
-                        nome = str(it.get('nome', 'Item sem nome'))
-                        c_i, c_v = st.columns([3.5, 1.4])
-                        if tipo == "KG":
-                            c_i.markdown(
-                                f"<div class='m-item-row'><span class='m-item-name'>⚖️ {nome}</span><span class='m-item-tag'>KG</span></div>",
-                                unsafe_allow_html=True,
-                            )
-                            val_kg = c_v.number_input("R$", 0.0, step=0.1, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
-                            it['subtotal'] = val_kg
-                        else:
-                            qtd = int(it.get('qtd', 0))
-                            subtotal = float(it.get('subtotal', 0))
-                            c_i.markdown(
-                                f"<div class='m-item-row'><span class='m-item-name'>✅ {nome}</span><span class='m-item-tag'>{qtd}x</span></div>",
-                                unsafe_allow_html=True,
-                            )
-                            c_v.markdown(f"<div class='m-item-price'>R$ {subtotal:.2f}</div>", unsafe_allow_html=True)
-                        total_m += float(it['subtotal'])
+        for idx, row in pend_m.iterrows():
+            with st.expander(f"👤 {row.get('cliente', '?')}", expanded=True):
+                st.write(f"📍 {row.get('endereco', '')}")
+                try:
+                    itens_m = json.loads(row.get("itens", "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    st.warning("Nao foi possivel ler os itens deste pedido.")
+                    continue
 
-                    st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-                    st.markdown("<div class='m-actions-anchor m-actions-ok'></div>", unsafe_allow_html=True)
-                    col_ok = st.columns(1)[0]
-                    st.markdown("<div class='m-actions-anchor m-actions-secondary'></div>", unsafe_allow_html=True)
-                    col_print, col_delete = st.columns(2, gap="small")
+                st.markdown(
+                    "<div class='m-list-header'><span>Item</span><span>Valor</span></div>",
+                    unsafe_allow_html=True,
+                )
+                total_m = 0.0
+                for i, it in enumerate(itens_m):
+                    tipo = str(it.get('tipo', 'UN')).upper()
+                    nome = str(it.get('nome', 'Item sem nome'))
+                    c_i, c_v = st.columns([3.5, 1.4])
+                    if tipo == "KG":
+                        c_i.markdown(
+                            f"<div class='m-item-row'><span class='m-item-name'>⚖️ {nome}</span><span class='m-item-tag'>KG</span></div>",
+                            unsafe_allow_html=True,
+                        )
+                        val_kg = c_v.number_input("R$", 0.0, step=0.1, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
+                        it['subtotal'] = val_kg
+                    else:
+                        qtd = int(it.get('qtd', 0))
+                        subtotal = parse_float(it.get('subtotal', 0))
+                        c_i.markdown(
+                            f"<div class='m-item-row'><span class='m-item-name'>✅ {nome}</span><span class='m-item-tag'>{qtd}x</span></div>",
+                            unsafe_allow_html=True,
+                        )
+                        c_v.markdown(
+                            f"<div class='m-item-price'>R$ {subtotal:.2f}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    total_m += parse_float(it.get('subtotal', 0))
 
-                    txt_e = f"{row['cliente']}\n{row['endereco']}\n\nTOTAL: R$ {total_m:.2f}"
-                    b64 = base64.b64encode(txt_e.encode()).decode()
-                    col_print.markdown(
-                        f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>',
-                        unsafe_allow_html=True,
-                    )
+                st.markdown(
+                    f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown("<div class='m-actions-anchor m-actions-ok'></div>", unsafe_allow_html=True)
+                col_ok = st.columns(1)[0]
+                st.markdown("<div class='m-actions-anchor m-actions-secondary'></div>", unsafe_allow_html=True)
+                col_print, col_delete = st.columns(2, gap="small")
 
-                    if col_ok.button("📦 OK", key=f"ok_{row['id']}", use_container_width=True):
-                        df_m.at[idx, 'status'] = 'Pronto'
-                        df_m.at[idx, 'total'] = total_m
-                        df_m.at[idx, 'itens'] = json.dumps(itens_m)
-                        conn.update(worksheet="Pedidos", data=df_m)
-                        st.rerun()
+                txt_e = f"{row['cliente']}\n{row['endereco']}\n\nTOTAL: R$ {total_m:.2f}"
+                b64 = base64.b64encode(txt_e.encode()).decode()
+                col_print.markdown(
+                    f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>',
+                    unsafe_allow_html=True,
+                )
 
-                    if col_delete.button("🗑️", key=f"del_{row['id']}"):
-                        df_m = df_m.drop(idx)
-                        conn.update(worksheet="Pedidos", data=df_m)
-                        st.rerun()
+                if col_ok.button("📦 OK", key=f"ok_{row['id']}", use_container_width=True):
+                    # Fresh read before write to avoid stale data
+                    df_fresh = ler_aba("Pedidos")
+                    match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
+                    if not match.empty:
+                        df_fresh.at[match[0], "status"] = "Pronto"
+                        df_fresh.at[match[0], "total"] = total_m
+                        df_fresh.at[match[0], "itens"] = json.dumps(itens_m)
+                        salvar_aba("Pedidos", df_fresh)
+                    st.rerun()
+
+                if col_delete.button("🗑️", key=f"del_{row['id']}"):
+                    # Fresh read before write to avoid stale data
+                    df_fresh = ler_aba("Pedidos")
+                    match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
+                    if not match.empty:
+                        df_fresh = df_fresh.drop(match[0]).reset_index(drop=True)
+                        salvar_aba("Pedidos", df_fresh)
+                    st.rerun()
 
 
 def render_tab_historico(tab):
     with tab:
         st.header("📜 Histórico")
         st.caption("Pedidos finalizados com valor total e status de pagamento.")
-        df_h = carregar_pedidos()
-        if not df_h.empty:
-            finalizados = filtrar_status(df_h, STATUS_PRONTO)
-            st.dataframe(finalizados[["data", "cliente", "total", "pagamento"]])
-        else:
+        if df_pedidos.empty:
             st.info("Sem historico para exibir.")
+            return
+
+        finalizados = filtrar_status(df_pedidos, STATUS_PRONTO)
+        if finalizados.empty:
+            st.info("Nenhum pedido finalizado ainda.")
+            return
+
+        cols_disponiveis = [c for c in ["data", "cliente", "total", "pagamento"] if c in finalizados.columns]
+        st.dataframe(finalizados[cols_disponiveis] if cols_disponiveis else finalizados)
 
 
 def render_tab_financeiro(tab):
     with tab:
         st.header("💰 Financeiro")
         st.caption("Acompanhe o que ja foi recebido e o que ainda falta receber.")
-        df_f = carregar_pedidos()
-        if not df_f.empty:
-            recebido, pendente = calcular_totais_financeiros(df_f)
-            c_rec, c_pen = st.columns(2)
-            c_rec.metric("Recebido", f"R$ {recebido:.2f}")
-            c_pen.metric("A Receber", f"R$ {pendente:.2f}")
-        else:
+        if df_pedidos.empty:
             st.info("Sem dados financeiros disponiveis.")
+            return
+
+        recebido, pendente = calcular_totais_financeiros(df_pedidos)
+        c_rec, c_pen = st.columns(2)
+        c_rec.metric("Recebido", f"R$ {recebido:.2f}")
+        c_pen.metric("A Receber", f"R$ {pendente:.2f}")
 
 
 # 5 ABAS

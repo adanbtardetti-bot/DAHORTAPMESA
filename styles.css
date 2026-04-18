@@ -1,23 +1,124 @@
 @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700&family=Nunito:wght@500;700;800&display=swap');
 
-:root {
-    --bg-main: #f6f6ee;
+/* ==========================================================
+   THEME TOKENS — Light (default) & Dark
+   Streamlit sets [data-theme="dark"] on <html> in dark mode.
+   We also honour prefers-color-scheme for SSR / embed.
+   ========================================================== */
+:root,
+html[data-theme="light"] {
+    --bg-main: #f5f6ee;
     --bg-card: #ffffff;
     --bg-soft: #eef6de;
-    --text-main: #203026;
+    --bg-input: #ffffff;
+    --text-main: #1b2e21;
     --text-soft: #4b5f4d;
+    --text-inv: #ffffff;
     --accent: #2f7d4b;
+    --accent-hover: #256b3e;
+    --accent-soft: #e9efde;
+    --accent-border: #d4dfc3;
     --accent-2: #e08a26;
     --danger: #c74545;
+    --danger-hover: #a83636;
+    --warning-bg: #fff5df;
+    --warning-border: #e2c688;
+    --warning-text: #6b4b11;
     --border: #d7e2c8;
-    --shadow: 0 6px 16px rgba(25, 52, 38, 0.07);
+    --border-input: #c0ccb2;
+    --shadow: 0 4px 14px rgba(25, 52, 38, 0.07);
+    --hero-from: #2f7d4b;
+    --hero-to: #56ad76;
+    --tab-bg: #e9efde;
+    --tab-active-bg: #ffffff;
+    --tab-text: #45614b;
+    --tab-active-text: #1b2e21;
+    --kpi-value: #193c26;
+    --item-bg: #fbfdf7;
+    --item-border: #dce6ce;
+    --item-tag-bg: #edf4e2;
+    --item-tag-border: #d0debc;
+    --item-tag-text: #416147;
 }
 
+html[data-theme="dark"],
+html[data-theme="dark"] :root {
+    --bg-main: #0e1a12;
+    --bg-card: #162118;
+    --bg-soft: #1a2d1f;
+    --bg-input: #1a2d1f;
+    --text-main: #dce8df;
+    --text-soft: #97ad9b;
+    --text-inv: #ffffff;
+    --accent: #4aad6a;
+    --accent-hover: #3d9759;
+    --accent-soft: #1f3327;
+    --accent-border: #2e4a35;
+    --accent-2: #e7a040;
+    --danger: #e05555;
+    --danger-hover: #c44040;
+    --warning-bg: #2b2516;
+    --warning-border: #5c4a22;
+    --warning-text: #e4c477;
+    --border: #29402e;
+    --border-input: #35523b;
+    --shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+    --hero-from: #1e5a35;
+    --hero-to: #306e45;
+    --tab-bg: #1a2d1f;
+    --tab-active-bg: #243228;
+    --tab-text: #8fa894;
+    --tab-active-text: #d4e6d8;
+    --kpi-value: #b2daba;
+    --item-bg: #182a1d;
+    --item-border: #29402e;
+    --item-tag-bg: #1f3327;
+    --item-tag-border: #2e4a35;
+    --item-tag-text: #8fb898;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg-main: #0e1a12;
+        --bg-card: #162118;
+        --bg-soft: #1a2d1f;
+        --bg-input: #1a2d1f;
+        --text-main: #dce8df;
+        --text-soft: #97ad9b;
+        --text-inv: #ffffff;
+        --accent: #4aad6a;
+        --accent-hover: #3d9759;
+        --accent-soft: #1f3327;
+        --accent-border: #2e4a35;
+        --accent-2: #e7a040;
+        --danger: #e05555;
+        --danger-hover: #c44040;
+        --warning-bg: #2b2516;
+        --warning-border: #5c4a22;
+        --warning-text: #e4c477;
+        --border: #29402e;
+        --border-input: #35523b;
+        --shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+        --hero-from: #1e5a35;
+        --hero-to: #306e45;
+        --tab-bg: #1a2d1f;
+        --tab-active-bg: #243228;
+        --tab-text: #8fa894;
+        --tab-active-text: #d4e6d8;
+        --kpi-value: #b2daba;
+        --item-bg: #182a1d;
+        --item-border: #29402e;
+        --item-tag-bg: #1f3327;
+        --item-tag-border: #2e4a35;
+        --item-tag-text: #8fb898;
+    }
+}
+
+/* ==========================================================
+   BASE
+   ========================================================== */
 .stApp {
-    background:
-        radial-gradient(circle at 15% -10%, #d9ebc4 0%, transparent 38%),
-        radial-gradient(circle at 92% 0%, #f4d7b8 0%, transparent 30%),
-        linear-gradient(180deg, #f7f8f0 0%, #f4f6e9 100%);
+    background: var(--bg-main);
     color: var(--text-main);
 }
 
@@ -35,6 +136,9 @@ section.main > div {
     gap: 0.42rem;
 }
 
+/* ==========================================================
+   TYPOGRAPHY
+   ========================================================== */
 h1, h2, h3 {
     font-family: 'Baloo 2', cursive;
     color: var(--text-main);
@@ -43,149 +147,6 @@ h1, h2, h3 {
 
 p, label, span, div {
     font-family: 'Nunito', sans-serif;
-}
-
-.hero {
-    background: linear-gradient(115deg, #2f7d4b 0%, #3f9b63 60%, #56ad76 100%);
-    color: #ffffff;
-    border-radius: 14px;
-    padding: 0.68rem 0.9rem 0.6rem;
-    margin-bottom: 0.42rem;
-    box-shadow: var(--shadow);
-}
-
-.hero .title {
-    font-family: 'Baloo 2', cursive;
-    font-size: 1.24rem;
-    font-weight: 700;
-    line-height: 1.1;
-}
-
-.hero .subtitle {
-    margin-top: 0.12rem;
-    font-size: 0.8rem;
-    opacity: 0.95;
-}
-
-.stTabs [data-baseweb="tab-list"] {
-    gap: 0.45rem;
-    border-bottom: none;
-    margin-bottom: 0.32rem;
-    flex-wrap: wrap;
-}
-
-.stTabs [data-baseweb="tab"] {
-    background-color: #e9efde;
-    border-radius: 999px;
-    border: 1px solid transparent;
-    padding: 0.24rem 0.58rem;
-    min-height: 1.9rem;
-    font-weight: 800;
-    font-size: 0.88rem;
-    color: #45614b;
-    transition: all 120ms ease-in-out;
-}
-
-.stTabs [aria-selected="true"] {
-    background-color: #ffffff;
-    border-color: #d4dfc3;
-    color: #274833;
-    box-shadow: 0 4px 14px rgba(47, 125, 75, 0.14);
-}
-
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 0.24rem 0.42rem;
-}
-
-div[data-testid="stMetric"] {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-    padding: 0.12rem 0.42rem;
-    box-shadow: var(--shadow);
-}
-
-div[data-testid="stMetricLabel"] p {
-    font-size: 0.76rem;
-}
-
-div[data-testid="stMetricValue"] {
-    font-size: 1.15rem;
-}
-
-div[data-testid="stTextInput"] input,
-div[data-testid="stNumberInput"] input,
-div[data-testid="stTextArea"] textarea {
-    border-radius: 8px;
-    border: 1px solid #cad6b8;
-    min-height: 2.05rem;
-}
-
-div[data-testid="stColumn"] {
-    display: flex;
-    align-items: center;
-}
-
-.stButton > button {
-    border-radius: 8px;
-    font-weight: 800;
-    font-size: 0.84rem;
-    border: none;
-    padding-top: 0.28rem;
-    padding-bottom: 0.28rem;
-}
-
-.btn-zap {
-    background-color: #25d366;
-    color: #ffffff;
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
-    text-align: center;
-    text-decoration: none;
-    display: block;
-    font-weight: 800;
-    margin-top: 0.3rem;
-    box-shadow: 0 8px 20px rgba(37, 211, 102, 0.3);
-}
-
-.btn-print {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    min-height: 2.2rem;
-    border-radius: 8px;
-    border: 1px solid #c9d6bb;
-    background-color: #ffffff;
-    text-decoration: none;
-    font-size: 1.2rem;
-}
-
-.total-badge {
-    background: linear-gradient(120deg, #fff4dc 0%, #ffe8bd 100%);
-    border: 1px solid #e7c98c;
-    color: #7d5516;
-    border-radius: 999px;
-    padding: 0.22rem 0.62rem;
-    font-weight: 800;
-    display: inline-block;
-    font-size: 0.82rem;
-}
-
-[data-testid="stExpander"] {
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-    background: #ffffff;
-}
-
-[data-testid="stDataFrame"] {
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
 }
 
 h2 {
@@ -198,6 +159,34 @@ h2 {
     margin-bottom: 0.18rem;
 }
 
+/* ==========================================================
+   HERO BANNER
+   ========================================================== */
+.hero-banner {
+    background: linear-gradient(115deg, var(--hero-from) 0%, var(--hero-to) 100%);
+    color: var(--text-inv);
+    border-radius: 14px;
+    padding: 0.68rem 0.9rem 0.6rem;
+    margin-bottom: 0.42rem;
+    box-shadow: var(--shadow);
+}
+
+.hero-banner .hero-title {
+    font-family: 'Baloo 2', cursive;
+    font-size: 1.24rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.hero-banner .hero-subtitle {
+    margin-top: 0.12rem;
+    font-size: 0.8rem;
+    opacity: 0.92;
+}
+
+/* ==========================================================
+   KPI CARDS
+   ========================================================== */
 .kpi-strip {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -206,7 +195,7 @@ h2 {
 }
 
 .kpi-card {
-    background: #ffffff;
+    background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 0.32rem 0.46rem;
@@ -221,18 +210,258 @@ h2 {
 }
 
 .kpi-value {
-    color: #193c26;
+    color: var(--kpi-value);
     font-size: 1.02rem;
     font-weight: 800;
     line-height: 1.2;
     margin-top: 0.08rem;
 }
 
+/* ==========================================================
+   TAB PILLS
+   ========================================================== */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.45rem;
+    border-bottom: none;
+    margin-bottom: 0.32rem;
+    flex-wrap: wrap;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background-color: var(--tab-bg);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    padding: 0.32rem 0.72rem;
+    min-height: 2.2rem;
+    font-weight: 800;
+    font-size: 0.88rem;
+    color: var(--tab-text);
+    transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    background-color: var(--accent-soft);
+}
+
+.stTabs [aria-selected="true"] {
+    background-color: var(--tab-active-bg);
+    border-color: var(--accent-border);
+    color: var(--tab-active-text);
+    box-shadow: var(--shadow);
+}
+
+/* ==========================================================
+   CARDS / CONTAINERS
+   ========================================================== */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.24rem 0.42rem;
+}
+
+[data-testid="stExpander"] {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-card);
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* ==========================================================
+   METRICS
+   ========================================================== */
+div[data-testid="stMetric"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 0.12rem 0.42rem;
+    box-shadow: var(--shadow);
+}
+
+div[data-testid="stMetricLabel"] p {
+    font-size: 0.76rem;
+    color: var(--text-soft);
+}
+
+div[data-testid="stMetricValue"] {
+    font-size: 1.15rem;
+    color: var(--kpi-value);
+}
+
+/* ==========================================================
+   INPUTS
+   ========================================================== */
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+div[data-testid="stTextArea"] textarea {
+    border-radius: 8px;
+    border: 1px solid var(--border-input);
+    background: var(--bg-input);
+    color: var(--text-main);
+    min-height: 2.4rem;
+    font-size: 0.92rem;
+    padding: 0.35rem 0.5rem;
+}
+
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stNumberInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(47, 125, 75, 0.18);
+}
+
+div[data-testid="stColumn"] {
+    display: flex;
+    align-items: center;
+}
+
+/* ==========================================================
+   BUTTONS — Primary / Secondary / Danger
+   ========================================================== */
+.stButton > button {
+    border-radius: 10px;
+    font-weight: 800;
+    font-size: 0.88rem;
+    border: 1px solid transparent;
+    padding: 0.42rem 0.8rem;
+    min-height: 2.6rem;
+    cursor: pointer;
+    transition: background-color 120ms, box-shadow 120ms, transform 80ms;
+    /* Secondary (default) */
+    background: var(--bg-card);
+    color: var(--accent);
+    border-color: var(--border);
+}
+
+.stButton > button:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+}
+
+.stButton > button:active {
+    transform: scale(0.97);
+}
+
+/* Primary variant */
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="stBaseButton-primary"] {
+    background: var(--accent);
+    color: var(--text-inv);
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(47, 125, 75, 0.22);
+}
+
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="stBaseButton-primary"]:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 6px 18px rgba(47, 125, 75, 0.3);
+}
+
+/* Streamlit also wraps primary buttons in a div with data-testid */
+div[data-testid="stBaseButton-primary"] > button {
+    background: var(--accent) !important;
+    color: var(--text-inv) !important;
+    border-color: transparent !important;
+    box-shadow: 0 4px 12px rgba(47, 125, 75, 0.22);
+    border-radius: 10px;
+    font-weight: 800;
+    font-size: 0.88rem;
+    padding: 0.42rem 0.8rem;
+    min-height: 2.6rem;
+}
+
+div[data-testid="stBaseButton-primary"] > button:hover {
+    background: var(--accent-hover) !important;
+    box-shadow: 0 6px 18px rgba(47, 125, 75, 0.3);
+}
+
+/* Secondary explicit */
+div[data-testid="stBaseButton-secondary"] > button {
+    background: var(--bg-card);
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-weight: 800;
+    font-size: 0.88rem;
+    padding: 0.42rem 0.8rem;
+    min-height: 2.6rem;
+}
+
+div[data-testid="stBaseButton-secondary"] > button:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+}
+
+/* ==========================================================
+   CUSTOM LINK-BUTTONS
+   ========================================================== */
+.btn-zap {
+    background-color: #25d366;
+    color: #ffffff;
+    padding: 0.56rem 0.85rem;
+    border-radius: 10px;
+    text-align: center;
+    text-decoration: none;
+    display: block;
+    font-weight: 800;
+    font-size: 0.9rem;
+    margin-top: 0.3rem;
+    min-height: 2.6rem;
+    box-shadow: 0 6px 16px rgba(37, 211, 102, 0.28);
+    transition: background-color 120ms;
+}
+
+.btn-zap:hover {
+    background-color: #1fba57;
+}
+
+.btn-print {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2.6rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background-color: var(--bg-card);
+    color: var(--text-main);
+    text-decoration: none;
+    font-size: 1.2rem;
+    transition: background-color 120ms;
+}
+
+.btn-print:hover {
+    background-color: var(--accent-soft);
+}
+
+/* ==========================================================
+   TOTAL BADGE
+   ========================================================== */
+.total-badge {
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
+    color: var(--warning-text);
+    border-radius: 999px;
+    padding: 0.22rem 0.62rem;
+    font-weight: 800;
+    display: inline-block;
+    font-size: 0.82rem;
+}
+
+/* ==========================================================
+   MONTAGEM LIST ELEMENTS
+   ========================================================== */
 .m-list-header {
     display: flex;
     justify-content: space-between;
     font-size: 0.72rem;
-    color: #5f735f;
+    color: var(--text-soft);
     font-weight: 700;
     margin: 0.2rem 0 0.25rem;
     padding: 0 0.1rem;
@@ -242,23 +471,23 @@ h2 {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border: 1px solid #dce6ce;
-    background: #fbfdf7;
+    border: 1px solid var(--item-border);
+    background: var(--item-bg);
     border-radius: 9px;
     padding: 0.26rem 0.44rem;
     margin-bottom: 0.26rem;
 }
 
 .m-item-name {
-    color: #233a29;
+    color: var(--text-main);
     font-weight: 700;
     font-size: 0.86rem;
 }
 
 .m-item-tag {
-    background: #edf4e2;
-    border: 1px solid #d0debc;
-    color: #416147;
+    background: var(--item-tag-bg);
+    border: 1px solid var(--item-tag-border);
+    color: var(--item-tag-text);
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 800;
@@ -266,15 +495,15 @@ h2 {
 }
 
 .m-item-price {
-    border: 1px solid #d6e2c7;
-    background: #ffffff;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
     border-radius: 9px;
-    min-height: 2.05rem;
+    min-height: 2.4rem;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 800;
-    color: #23402e;
+    color: var(--text-main);
     font-size: 0.86rem;
 }
 
@@ -285,12 +514,14 @@ h2 {
     padding: 0.2rem 0.7rem;
     font-weight: 800;
     font-size: 0.84rem;
-    color: #6b4b11;
-    border: 1px solid #e2c688;
-    background: linear-gradient(120deg, #fff5df 0%, #ffeabf 100%);
+    color: var(--warning-text);
+    border: 1px solid var(--warning-border);
+    background: var(--warning-bg);
 }
 
-
+/* ==========================================================
+   MONTAGEM ACTION ROWS
+   ========================================================== */
 .m-actions-anchor {
     height: 0;
     margin: 0;
@@ -316,34 +547,37 @@ div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
     min-width: 0;
 }
 
-@media (max-width: 900px) {
+/* ==========================================================
+   MOBILE — ≤ 768px  (true phone breakpoint)
+   ========================================================== */
+@media (max-width: 768px) {
     .block-container {
-        padding-left: 0.72rem;
-        padding-right: 0.72rem;
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
     }
 
+    /* KPIs: 2-col on phone */
     .kpi-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.34rem;
-        margin-bottom: 0.34rem;
-    }
-
-    .hero {
-        padding: 0.56rem 0.72rem 0.5rem;
+        gap: 0.3rem;
         margin-bottom: 0.3rem;
     }
 
-    .hero .title {
-        font-size: 1.08rem;
+    /* Hero */
+    .hero-banner {
+        padding: 0.5rem 0.65rem 0.44rem;
+        margin-bottom: 0.28rem;
+        border-radius: 10px;
     }
 
-    .hero .subtitle {
-        font-size: 0.74rem;
-    }
+    .hero-banner .hero-title { font-size: 1.06rem; }
+    .hero-banner .hero-subtitle { font-size: 0.74rem; }
 
+    /* Tabs: horizontal scroll, no wrap */
     .stTabs [data-baseweb="tab-list"] {
         flex-wrap: nowrap;
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
         scrollbar-width: thin;
         padding-bottom: 0.18rem;
         gap: 0.28rem;
@@ -352,40 +586,49 @@ div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
     .stTabs [data-baseweb="tab"] {
         flex: 0 0 auto;
         white-space: nowrap;
-        min-height: 1.75rem;
-        padding: 0.2rem 0.5rem;
-        font-size: 0.78rem;
+        min-height: 2.2rem;
+        padding: 0.28rem 0.6rem;
+        font-size: 0.82rem;
     }
 
+    /* Headings */
     h2 {
-        font-size: 1.08rem;
+        font-size: 1.06rem;
         margin-top: 0.08rem;
         margin-bottom: 0.08rem;
     }
 
+    /* Columns */
     div[data-testid="stHorizontalBlock"] {
-        gap: 0.32rem;
+        gap: 0.28rem;
     }
 
-    div[data-testid="stMetricValue"] {
-        font-size: 0.98rem;
+    /* Metrics */
+    div[data-testid="stMetricValue"] { font-size: 0.96rem; }
+
+    /* Buttons — bigger touch targets on mobile */
+    .stButton > button,
+    div[data-testid="stBaseButton-primary"] > button,
+    div[data-testid="stBaseButton-secondary"] > button {
+        min-height: 2.8rem;
+        font-size: 0.86rem;
+        border-radius: 10px;
+        padding: 0.44rem 0.7rem;
     }
 
-    .m-item-name {
-        font-size: 0.79rem;
+    /* Inputs — bigger on mobile */
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextArea"] textarea {
+        min-height: 2.6rem;
+        font-size: 0.95rem;
     }
 
-    .m-item-tag {
-        font-size: 0.66rem;
-        padding: 0.06rem 0.35rem;
-    }
-
-    .m-item-price,
-    .btn-print,
-    .stButton > button {
-        min-height: 1.95rem;
-        font-size: 0.8rem;
-    }
+    /* Montagem items */
+    .m-item-name  { font-size: 0.79rem; }
+    .m-item-tag   { font-size: 0.66rem; padding: 0.06rem 0.35rem; }
+    .m-item-price { min-height: 2.4rem; }
+    .btn-print    { min-height: 2.6rem; }
 
     .m-actions-ok + div[data-testid="stHorizontalBlock"] {
         margin-top: 0.12rem;
@@ -404,5 +647,26 @@ div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
     div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
         flex: 1 1 0 !important;
         width: 0 !important;
+    }
+}
+
+/* ==========================================================
+   SMALL PHONE — ≤ 420px, extra density
+   ========================================================== */
+@media (max-width: 420px) {
+    .block-container {
+        padding-left: 0.4rem;
+        padding-right: 0.4rem;
+    }
+
+    .kpi-card { padding: 0.24rem 0.34rem; }
+    .kpi-title { font-size: 0.66rem; }
+    .kpi-value { font-size: 0.92rem; }
+
+    .hero-banner .hero-title { font-size: 0.96rem; }
+
+    .stTabs [data-baseweb="tab"] {
+        padding: 0.24rem 0.5rem;
+        font-size: 0.76rem;
     }
 }
