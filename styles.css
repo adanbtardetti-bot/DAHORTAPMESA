@@ -1,0 +1,235 @@
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700&family=Nunito:wght@500;700;800&display=swap');
+
+:root {
+    --bg-main: #f6f6ee;
+    --bg-card: #ffffff;
+    --bg-soft: #eef6de;
+    --text-main: #203026;
+    --text-soft: #4b5f4d;
+    --accent: #2f7d4b;
+    --accent-2: #e08a26;
+    --danger: #c74545;
+    --border: #d7e2c8;
+    --shadow: 0 6px 16px rgba(25, 52, 38, 0.07);
+}
+
+.stApp {
+    background:
+        radial-gradient(circle at 15% -10%, #d9ebc4 0%, transparent 38%),
+        radial-gradient(circle at 92% 0%, #f4d7b8 0%, transparent 30%),
+        linear-gradient(180deg, #f7f8f0 0%, #f4f6e9 100%);
+    color: var(--text-main);
+}
+
+div[data-testid="stAppViewContainer"] > .main {
+    padding-top: 0.55rem;
+}
+
+.block-container {
+    max-width: 1280px;
+    padding-top: 0.2rem;
+    padding-bottom: 0.65rem;
+}
+
+section.main > div {
+    gap: 0.45rem;
+}
+
+h1, h2, h3 {
+    font-family: 'Baloo 2', cursive;
+    color: var(--text-main);
+    letter-spacing: 0.2px;
+}
+
+p, label, span, div {
+    font-family: 'Nunito', sans-serif;
+}
+
+.hero {
+    background: linear-gradient(115deg, #2f7d4b 0%, #3f9b63 60%, #56ad76 100%);
+    color: #ffffff;
+    border-radius: 14px;
+    padding: 0.7rem 0.95rem 0.62rem;
+    margin-bottom: 0.45rem;
+    box-shadow: var(--shadow);
+}
+
+.hero .title {
+    font-family: 'Baloo 2', cursive;
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.hero .subtitle {
+    margin-top: 0.12rem;
+    font-size: 0.84rem;
+    opacity: 0.95;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.45rem;
+    border-bottom: none;
+    margin-bottom: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background-color: #e9efde;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    padding: 0.28rem 0.66rem;
+    min-height: 2rem;
+    font-weight: 800;
+    font-size: 0.88rem;
+    color: #45614b;
+    transition: all 120ms ease-in-out;
+}
+
+.stTabs [aria-selected="true"] {
+    background-color: #ffffff;
+    border-color: #d4dfc3;
+    color: #274833;
+    box-shadow: 0 4px 14px rgba(47, 125, 75, 0.14);
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.22rem 0.45rem;
+}
+
+div[data-testid="stMetric"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 0.15rem 0.5rem;
+    box-shadow: var(--shadow);
+}
+
+div[data-testid="stMetricLabel"] p {
+    font-size: 0.76rem;
+}
+
+div[data-testid="stMetricValue"] {
+    font-size: 1.15rem;
+}
+
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+div[data-testid="stTextArea"] textarea {
+    border-radius: 8px;
+    border: 1px solid #cad6b8;
+    min-height: 2.2rem;
+}
+
+div[data-testid="stColumn"] {
+    display: flex;
+    align-items: center;
+}
+
+.stButton > button {
+    border-radius: 8px;
+    font-weight: 800;
+    font-size: 0.88rem;
+    border: none;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+}
+
+.btn-zap {
+    background-color: #25d366;
+    color: #ffffff;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    text-align: center;
+    text-decoration: none;
+    display: block;
+    font-weight: 800;
+    margin-top: 0.3rem;
+    box-shadow: 0 8px 20px rgba(37, 211, 102, 0.3);
+}
+
+.btn-print {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2.2rem;
+    border-radius: 8px;
+    border: 1px solid #c9d6bb;
+    background-color: #ffffff;
+    text-decoration: none;
+    font-size: 1.2rem;
+}
+
+.total-badge {
+    background: linear-gradient(120deg, #fff4dc 0%, #ffe8bd 100%);
+    border: 1px solid #e7c98c;
+    color: #7d5516;
+    border-radius: 999px;
+    padding: 0.22rem 0.62rem;
+    font-weight: 800;
+    display: inline-block;
+    font-size: 0.82rem;
+}
+
+[data-testid="stExpander"] {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+h2 {
+    margin-top: 0.2rem;
+    margin-bottom: 0.18rem;
+    font-size: 1.35rem;
+}
+
+[data-testid="stCaptionContainer"] {
+    margin-bottom: 0.2rem;
+}
+
+.kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin-bottom: 0.45rem;
+}
+
+.kpi-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.38rem 0.55rem;
+    box-shadow: var(--shadow);
+}
+
+.kpi-title {
+    color: var(--text-soft);
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+.kpi-value {
+    color: #193c26;
+    font-size: 1.02rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-top: 0.08rem;
+}
+
+@media (max-width: 900px) {
+    .kpi-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
