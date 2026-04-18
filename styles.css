@@ -291,11 +291,20 @@ h2 {
 }
 
 .m-actions {
-    margin-top: 0.22rem;
+    margin-top: 0.12rem;
 }
 
 .m-actions-secondary {
-    margin-top: 0.14rem;
+    margin-top: 0.06rem;
+}
+
+div[data-testid="stHorizontalBlock"]:has(.btn-print) {
+    gap: 0.35rem;
+    align-items: stretch;
+}
+
+div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
+    min-width: 0;
 }
 
 @media (max-width: 900px) {
@@ -370,10 +379,20 @@ h2 {
     }
 
     .m-actions {
-        margin-top: 0.28rem;
+        margin-top: 0.14rem;
     }
 
     .m-actions-secondary {
-        margin-top: 0.16rem;
+        margin-top: 0.04rem;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(.btn-print) {
+        flex-wrap: nowrap !important;
+        gap: 0.24rem !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
+        flex: 1 1 0 !important;
+        width: 0 !important;
     }
 }
