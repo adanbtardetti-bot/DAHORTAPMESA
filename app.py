@@ -228,22 +228,24 @@ def render_tab_montagem(tab):
                         total_m += float(it['subtotal'])
 
                     st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-                    col1, col2, col3 = st.columns(3)
-                    if col1.button("📦 OK", key=f"ok_{row['id']}"):
+                    st.markdown("<div class='m-actions'></div>", unsafe_allow_html=True)
+                    col_print, col_ok, col_delete = st.columns(3, gap="small")
+
+                    txt_e = f"{row['cliente']}\n{row['endereco']}\n\nTOTAL: R$ {total_m:.2f}"
+                    b64 = base64.b64encode(txt_e.encode()).decode()
+                    col_print.markdown(
+                        f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>',
+                        unsafe_allow_html=True,
+                    )
+
+                    if col_ok.button("📦 OK", key=f"ok_{row['id']}"):
                         df_m.at[idx, 'status'] = 'Pronto'
                         df_m.at[idx, 'total'] = total_m
                         df_m.at[idx, 'itens'] = json.dumps(itens_m)
                         conn.update(worksheet="Pedidos", data=df_m)
                         st.rerun()
 
-                    txt_e = f"{row['cliente']}\n{row['endereco']}\n\nTOTAL: R$ {total_m:.2f}"
-                    b64 = base64.b64encode(txt_e.encode()).decode()
-                    col2.markdown(
-                        f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>',
-                        unsafe_allow_html=True,
-                    )
-
-                    if col3.button("🗑️", key=f"del_{row['id']}"):
+                    if col_delete.button("🗑️", key=f"del_{row['id']}"):
                         df_m = df_m.drop(idx)
                         conn.update(worksheet="Pedidos", data=df_m)
                         st.rerun()
