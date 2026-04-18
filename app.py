@@ -20,12 +20,18 @@ menu = st.sidebar.radio("Menu", [
 
 # -------- FUNÇÕES --------
 def carregar_produtos():
-    df = conn.read(worksheet="Produtos", ttl=0).dropna(how="all")
-    df.columns = [str(c).lower().strip() for c in df.columns]
-    return df[df['status'].astype(str).str.lower() != 'oculto']
+    try:
+        df = conn.read(worksheet="Produtos", ttl=0).dropna(how="all")
+        df.columns = [str(c).lower().strip() for c in df.columns]
+        return df[df['status'].astype(str).str.lower() != 'oculto']
+    except:
+        return pd.DataFrame(columns=["id", "nome", "preco", "tipo", "status"])
 
 def carregar_pedidos():
-    return conn.read(worksheet="Pedidos", ttl=0).dropna(how="all")
+    try:
+        return conn.read(worksheet="Pedidos", ttl=0).dropna(how="all")
+    except:
+        return pd.DataFrame()
 
 # -------- NOVO PEDIDO --------
 if menu == "🛒 Novo Pedido":
@@ -45,15 +51,15 @@ if menu == "🛒 Novo Pedido":
 
     df_p = carregar_produtos()
     carrinho = []
-    total = 0
+    total = 0.0
 
     for _, row in df_p.iterrows():
         col1, col2, col3 = st.columns([2,1,1])
 
         col1.write(row["nome"])
 
-        tipo = row["tipo"]
-        preco = float(row["preco"])
+        tipo = str(row["tipo"]).upper()
+        preco = float(str(row["preco"]).replace(",", "."))
 
         if tipo == "KG":
             col2.caption("PESAGEM")
@@ -70,88 +76,4 @@ if menu == "🛒 Novo Pedido":
                 "id": row["id"],
                 "nome": row["nome"],
                 "qtd": qtd,
-                "preco": preco,
-                "subtotal": sub,
-                "tipo": tipo
-            })
-
-    st.subheader(f"Total: R$ {total:.2f}")
-
-    if st.button("Salvar Pedido"):
-        df = carregar_pedidos()
-
-        novo = pd.DataFrame([{
-            "id": int(datetime.now().timestamp()),
-            "cliente": nome,
-            "endereco": endereco,
-            "itens": json.dumps(carrinho),
-            "status": "Pendente",
-            "data": datetime.now().strftime("%d/%m/%Y"),
-            "total_estimado": total,
-            "total_final": total,
-            "pagamento": "PAGO" if pago else "A PAGAR",
-            "obs": obs
-        }])
-
-        conn.update(worksheet="Pedidos", data=pd.concat([df, novo], ignore_index=True))
-
-        st.session_state.form_id += 1
-        st.rerun()
-
-# -------- COLHEITA --------
-elif menu == "🚜 Colheita":
-    st.header("🚜 Colheita")
-
-    df = carregar_pedidos()
-    df = df[df["status"] == "Pendente"]
-
-    resumo = {}
-
-    for _, row in df.iterrows():
-        itens = json.loads(row["itens"])
-
-        for i in itens:
-            resumo[i["nome"]] = resumo.get(i["nome"], 0) + i["qtd"]
-
-    st.dataframe(pd.DataFrame([
-        {"Produto": k, "Qtd": v} for k,v in resumo.items()
-    ]))
-
-# -------- MONTAGEM --------
-elif menu == "📦 Montagem":
-    st.header("📦 Montagem")
-
-    df = carregar_pedidos()
-    df = df[df["status"] == "Pendente"]
-
-    for idx, row in df.iterrows():
-        st.subheader(row["cliente"])
-
-        itens = json.loads(row["itens"])
-        total = 0
-
-        for i in itens:
-            col1, col2 = st.columns([2,1])
-
-            if i["tipo"] == "KG":
-                valor = col2.number_input(
-                    f"{i['nome']}",
-                    value=float(i["subtotal"]),
-                    key=f"{row['id']}_{i['id']}"
-                )
-                i["subtotal"] = valor
-            else:
-                valor = i["subtotal"]
-                col2.write(f"{valor:.2f}")
-
-            col1.write(f"{i['nome']} x {i['qtd']}")
-            total += float(i["subtotal"])
-
-        st.write(f"Total: R$ {total:.2f}")
-
-        colA, colB, colC = st.columns(3)
-
-        if colA.button("Salvar", key=f"s_{row['id']}"):
-            df.at[idx, "itens"] = json.dumps(itens)
-            df.at[idx, "total_final"] = total
-            df.at[idx, "status"] = "Mont
+                "
