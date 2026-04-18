@@ -123,4 +123,22 @@ with aba3:
                 txt_etiqueta = f"{row['cliente']}\n{row['endereco']}\n\nVALOR: R$ {novo_total:.2f}\n{row['pagamento']}"
                 b64_etiqueta = base64.b64encode(txt_etiqueta.encode()).decode()
                 # Link para o app RawBT (impressora térmica Bluetooth)
-                link
+                link_print = f"intent:base64,{b64_etiqueta}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+                col1.markdown(f'<a href="{link_print}"><button style="width:100%; height:3em; background:#444; color:white; border-radius:10px;">🖨️ Imprimir</button></a>', unsafe_allow_html=True)
+
+                # 2. BOTÃO CONCLUÍDO (PAGO)
+                if col2.button("✔️ Pago", key=f"ok_{row['id']}"):
+                    df_m.at[idx, 'status'] = 'Concluido'
+                    df_m.at[idx, 'total'] = novo_total
+                    df_m.at[idx, 'itens'] = json.dumps(itens_montagem)
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
+
+                # 3. BOTÃO EXCLUIR
+                if col3.button("🗑️", key=f"del_{row['id']}"):
+                    df_m = df_m.drop(idx)
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
+                st.divider()
+    else:
+        st.info("Nenhum pedido para montar.")
