@@ -198,20 +198,36 @@ def render_tab_montagem(tab):
             for idx, row in pend_m.iterrows():
                 with st.expander(f"👤 {row['cliente']}", expanded=True):
                     st.write(f"📍 {row['endereco']}")
-                    itens_m = json.loads(row['itens'])
+                    try:
+                        itens_m = json.loads(row['itens'])
+                    except Exception:
+                        st.warning("Nao foi possivel ler os itens deste pedido.")
+                        continue
+
+                    st.markdown("<div class='m-list-header'><span>Item</span><span>Valor</span></div>", unsafe_allow_html=True)
                     total_m = 0.0
                     for i, it in enumerate(itens_m):
-                        c_i, c_v = st.columns([3, 2])
-                        if str(it.get('tipo', '')).upper() == "KG":
-                            val_kg = c_v.number_input("R$", 0.0, step=0.1, key=f"m_{row['id']}_{i}")
+                        tipo = str(it.get('tipo', 'UN')).upper()
+                        nome = str(it.get('nome', 'Item sem nome'))
+                        c_i, c_v = st.columns([3.5, 1.4])
+                        if tipo == "KG":
+                            c_i.markdown(
+                                f"<div class='m-item-row'><span class='m-item-name'>⚖️ {nome}</span><span class='m-item-tag'>KG</span></div>",
+                                unsafe_allow_html=True,
+                            )
+                            val_kg = c_v.number_input("R$", 0.0, step=0.1, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
                             it['subtotal'] = val_kg
-                            c_i.write(f"⚖️ {it['nome']}")
                         else:
-                            c_i.write(f"✅ {it['qtd']}x {it['nome']}")
-                            c_v.write(f"R$ {it['subtotal']:.2f}")
+                            qtd = int(it.get('qtd', 0))
+                            subtotal = float(it.get('subtotal', 0))
+                            c_i.markdown(
+                                f"<div class='m-item-row'><span class='m-item-name'>✅ {nome}</span><span class='m-item-tag'>{qtd}x</span></div>",
+                                unsafe_allow_html=True,
+                            )
+                            c_v.markdown(f"<div class='m-item-price'>R$ {subtotal:.2f}</div>", unsafe_allow_html=True)
                         total_m += float(it['subtotal'])
 
-                    st.write(f"**TOTAL: R$ {total_m:.2f}**")
+                    st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                     col1, col2, col3 = st.columns(3)
                     if col1.button("📦 OK", key=f"ok_{row['id']}"):
                         df_m.at[idx, 'status'] = 'Pronto'
