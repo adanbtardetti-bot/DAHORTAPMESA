@@ -294,6 +294,10 @@ h2 {
     margin-top: 0.22rem;
 }
 
+.m-actions-secondary {
+    margin-top: 0.14rem;
+}
+
 @media (max-width: 900px) {
     .block-container {
         padding-left: 0.72rem;
@@ -367,5 +371,9 @@ h2 {
 
     .m-actions {
         margin-top: 0.28rem;
+    }
+
+    .m-actions-secondary {
+        margin-top: 0.16rem;
     }
 }

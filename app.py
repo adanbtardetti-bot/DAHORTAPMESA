@@ -228,8 +228,10 @@ def render_tab_montagem(tab):
                         total_m += float(it['subtotal'])
 
                     st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-                    st.markdown("<div class='m-actions'></div>", unsafe_allow_html=True)
-                    col_print, col_ok, col_delete = st.columns(3, gap="small")
+                    st.markdown("<div class='m-actions m-actions-ok'></div>", unsafe_allow_html=True)
+                    col_ok = st.columns(1)[0]
+                    st.markdown("<div class='m-actions m-actions-secondary'></div>", unsafe_allow_html=True)
+                    col_print, col_delete = st.columns(2, gap="small")
 
                     txt_e = f"{row['cliente']}\n{row['endereco']}\n\nTOTAL: R$ {total_m:.2f}"
                     b64 = base64.b64encode(txt_e.encode()).decode()
@@ -238,7 +240,7 @@ def render_tab_montagem(tab):
                         unsafe_allow_html=True,
                     )
 
-                    if col_ok.button("📦 OK", key=f"ok_{row['id']}"):
+                    if col_ok.button("📦 OK", key=f"ok_{row['id']}", use_container_width=True):
                         df_m.at[idx, 'status'] = 'Pronto'
                         df_m.at[idx, 'total'] = total_m
                         df_m.at[idx, 'itens'] = json.dumps(itens_m)
