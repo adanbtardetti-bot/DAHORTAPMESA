@@ -2,137 +2,132 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import json
-import base64
 from datetime import datetime
 
-# --- CONFIGURAÇÃO E ESTILO ---
-st.set_page_config(page_title="Horta Gestão", layout="centered")
+# --- CONFIGURAÇÃO VISUAL ---
+st.set_page_config(page_title="Horta Gestão - Vendas", layout="centered")
 
 st.markdown("""
     <style>
-    .stButton>button { border-radius: 10px; height: 3em; width: 100%; font-weight: bold; }
-    .stTextInput>div>div>input { background-color: #f9f9f9; }
-    [data-testid="stMetric"] { background: white; padding: 10px; border-radius: 15px; border: 1px solid #eee; }
-    div[data-testid="stContainer"] { background: white; padding: 10px; border-radius: 12px; border: 1px solid #f0f0f0; margin-bottom: 5px; }
-    .total-card { background: #2e7d32; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 15px; }
+    /* Deixa os botões e inputs mais robustos para celular */
+    .stButton>button { border-radius: 10px; height: 3.5em; width: 100%; font-weight: bold; background-color: #2e7d32; color: white; }
+    .stTextInput>div>div>input { font-size: 16px; }
+    /* Caixa do Total */
+    .total-container {
+        position: sticky;
+        top: 0;
+        z-index: 999;
+        background-color: #ffffff;
+        padding: 10px;
+        border-bottom: 2px solid #2e7d32;
+        margin-bottom: 20px;
+    }
+    /* Cards de Produtos mais finos */
+    .prod-card {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+    }
     </style>
 """, unsafe_allow_html=True)
 
+# --- CONEXÃO ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def carregar(aba):
+def carregar_produtos():
     try:
-        df = conn.read(worksheet=aba, ttl=0).dropna(how="all")
+        df = conn.read(worksheet="Produtos", ttl=0).dropna(how="all")
         df.columns = [str(c).lower().strip() for c in df.columns]
-        return df
+        # Mostra apenas produtos que não estão ocultos
+        return df[df['status'].astype(str).str.lower() != 'oculto']
     except:
-        if aba == "Produtos":
-            return pd.DataFrame(columns=["id", "nome", "preco", "tipo", "status"])
-        return pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"])
+        return pd.DataFrame(columns=["id", "nome", "preco", "tipo", "status"])
 
-df_p = carregar("Produtos")
-df_v = carregar("Pedidos")
+# --- INTERFACE ---
+st.header("🛒 Novo Pedido")
 
-tab = st.tabs(["🛒 Vendas", "🚜 Colheita", "⚖️ Montagem", "📦 Estoque", "📊 Financeiro", "🕒 Histórico"])
+# 1. DADOS DO CLIENTE
+with st.container():
+    col1, col2 = st.columns(2)
+    nome_cli = col1.text_input("Nome do Cliente").upper()
+    end_cli = col2.text_input("Endereço").upper()
+    
+    col3, col4 = st.columns([1, 2])
+    pago = col3.toggle("Já está pago?")
+    obs_ped = col4.text_input("Observação ou recado")
 
-# --- 1. TELA DE VENDAS (OTIMIZADA) ---
-with tab[0]:
-    st.subheader("Novo Pedido")
-    
-    # Informações fixas no topo
-    col_cli, col_end = st.columns(2)
-    nome = col_cli.text_input("Cliente").upper()
-    ende = col_end.text_input("Endereço").upper()
-    
-    col_pg, col_obs = st.columns([1, 2])
-    pago_venda = col_pg.checkbox("PAGO?")
-    obs_venda = col_obs.text_input("Observação (opcional)")
+st.divider()
 
-    st.divider()
+# 2. LISTA DE PRODUTOS COM BUSCA
+busca = st.text_input("🔍 Procurar produto (Ex: Alface, Tomate...)", "").lower()
+
+df_p = carregar_produtos()
+carrinho = []
+valor_total = 0.0
+
+if not df_p.empty:
+    # Filtro de busca
+    if busca:
+        df_exibir = df_p[df_p['nome'].str.lower().str.contains(busca)]
+    else:
+        df_exibir = df_p
+
+    # Cabeçalho da Lista
+    st.write(f"Exibindo {len(df_exibir)} produtos:")
     
-    # BARRA DE BUSCA PARA MUITOS PRODUTOS
-    busca = st.text_input("🔍 Pesquisar produto...", "").strip().lower()
-    
-    carrinho = []
-    total_live = 0.0
-    
-    if not df_p.empty:
-        # Filtra apenas Ativos e pelo que foi buscado
-        produtos_visiveis = df_p[df_p['status'].astype(str).str.lower() != 'oculto']
-        if busca:
-            produtos_visiveis = produtos_visiveis[produtos_visiveis['nome'].str.lower().contains(busca)]
+    for i, row in df_exibir.iterrows():
+        # Layout em colunas para cada linha de produto
+        c_nome, c_preco, c_qtd = st.columns([2, 1, 1])
         
-        for i, r in produtos_visiveis.iterrows():
-            with st.container():
-                c1, c2, c3 = st.columns([2, 1, 1])
-                p_u = float(str(r.get('preco', 0)).replace(',', '.'))
-                c1.markdown(f"**{r['nome']}**")
-                c2.write(f"R$ {p_u:.2f}")
-                q = c3.number_input("Qtd", min_value=0, step=1, key=f"v_{i}")
-                
-                if q > 0:
-                    sub = q * p_u
-                    total_live += sub
-                    carrinho.append({"nome": r['nome'], "qtd": q, "tipo": r['tipo'], "preco": p_u, "subtotal": sub})
-
-    # Total e Botão Salvar
-    st.markdown(f"<div class='total-card'><h3>TOTAL: R$ {total_live:.2f}</h3></div>", unsafe_allow_html=True)
-    
-    if st.button("💾 CONCLUIR E SALVAR PEDIDO", type="primary"):
-        if nome and carrinho:
-            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": nome, "endereco": ende, "itens": json.dumps(carrinho), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_live, "pagamento": "PAGO" if pago_venda else "A PAGAR", "obs": obs_venda}])
-            conn.update(worksheet="Pedidos", data=pd.concat([df_v, novo], ignore_index=True))
-            st.success("Pedido registrado!"); st.rerun()
-        else:
-            st.error("Preencha o nome e selecione itens!")
-
-# --- 2. TELA DE COLHEITA (SOMA AUTOMÁTICA) ---
-with tab[1]:
-    st.subheader("O que colher agora")
-    if not df_v.empty:
-        pendentes = df_v[df_v['status'].astype(str).str.lower() == 'pendente']
-        soma_colheita = {}
-        for _, p in pendentes.iterrows():
-            try:
-                for it in json.loads(p['itens']):
-                    n = it['nome']; soma_colheita[n] = soma_colheita.get(n, 0) + it['qtd']
-            except: pass
+        preco_unit = float(str(row['preco']).replace(',', '.'))
+        c_nome.write(f"**{row['nome']}**")
+        c_preco.write(f"R$ {preco_unit:.2f}")
         
-        if soma_colheita:
-            for p, q in soma_colheita.items():
-                st.write(f"🥦 **{p}**: {q}")
-        else: st.write("Nenhum pedido pendente.")
+        # Campo de quantidade
+        qtd = c_qtd.number_input("Qtd", min_value=0, step=1, key=f"p_{row['id']}_{i}")
+        
+        if qtd > 0:
+            subtotal = qtd * preco_unit
+            valor_total += subtotal
+            carrinho.append({
+                "nome": row['nome'],
+                "qtd": qtd,
+                "preco": preco_unit,
+                "subtotal": subtotal,
+                "tipo": row.get('tipo', 'un')
+            })
 
-# --- 3. TELA DE MONTAGEM (COM ENDEREÇO E OBS) ---
-with tab[2]:
-    st.subheader("Pedidos para Montar")
-    if not df_v.empty:
-        pendentes = df_v[df_v['status'].astype(str).str.lower() == 'pendente']
-        for idx, p in pendentes.iterrows():
-            with st.container():
-                st.write(f"👤 **{p['cliente']}**")
-                if p.get('endereco') and str(p['endereco']) != 'nan': st.caption(f"📍 {p['endereco']}")
-                if p.get('obs') and str(p['obs']) != 'nan' and p['obs'].strip() != "": st.info(f"💡 {p['obs']}")
-                
-                try: its = json.loads(p['itens'])
-                except: its = []
-                
-                t_m, pronto = 0.0, True
-                for i, it in enumerate(its):
-                    if str(it.get('tipo', '')).upper() == "KG":
-                        peso = st.text_input(f"Peso {it['nome']}:", key=f"m_{idx}_{i}")
-                        if peso:
-                            v = float(peso.replace(',','.')); it['subtotal'] = v; t_m += v
-                        else: pronto = False
-                    else:
-                        st.write(f"• {it['qtd']}x {it['nome']}")
-                        t_m += float(it.get('subtotal', 0))
-                
-                st.write(f"**Total: R$ {t_m:.2f}**")
-                c1, c2, c3 = st.columns(3)
-                txt_imprimir = f"CLIENTE: {p['cliente']}\nTOTAL: R$ {t_m:.2f}"
-                link = f"intent:base64,{base64.b64encode(txt_imprimir.encode()).decode()}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
-                c1.markdown(f'<a href="{link}"><button style="width:100%; border-radius:10px; background:#444; color:white; border:none;">🖨️</button></a>', unsafe_allow_html=True)
-                if c2.button("🗑️", key=f"ex_{idx}"):
-                    conn.update(worksheet="Pedidos", data=df_v.drop(idx)); st.rerun()
-                if c3.button
+# 3. RESUMO E SALVAMENTO
+st.markdown("---")
+st.markdown(f"### 💰 TOTAL DO PEDIDO: R$ {valor_total:.2f}")
+
+if st.button("💾 CONFIRMAR E SALVAR PEDIDO"):
+    if not nome_cli:
+        st.error("Por favor, coloque o NOME do cliente.")
+    elif not carrinho:
+        st.error("O pedido está vazio! Adicione algum produto.")
+    else:
+        try:
+            # Tenta ler pedidos existentes
+            df_v = conn.read(worksheet="Pedidos", ttl=0)
+            
+            novo_item = pd.DataFrame([{
+                "id": int(datetime.now().timestamp()),
+                "cliente": nome_cli,
+                "endereco": end_cli,
+                "itens": json.dumps(carrinho),
+                "status": "Pendente",
+                "data": datetime.now().strftime("%d/%m/%Y"),
+                "total": valor_total,
+                "pagamento": "PAGO" if pago else "A PAGAR",
+                "obs": obs_ped
+            }])
+            
+            # Atualiza a planilha
+            df_final = pd.concat([df_v, novo_item], ignore_index=True)
+            conn.update(worksheet="Pedidos", data=df_final)
+            
+            st.success(f"Pedido de {nome_cli} salvo com sucesso!")
+            st.balloons()
+            # Opcional: st.rerun() para limpar a tela para o próximo
+        except Exception as e:
+            st.error(f"Erro ao salvar na planilha: {e}")
