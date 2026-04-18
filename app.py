@@ -3,92 +3,133 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import json
 import urllib.parse
+import base64
 from datetime import datetime
 
+# Configuração da página
 st.set_page_config(page_title="Horta Gestão", layout="centered")
 
-# Estilos para evitar quebras no celular
-st.markdown('<style>div[data-testid="stColumn"]{display:flex;align-items:center;} .btn-whatsapp{background-color:#25d366;color:white;padding:15px;border-radius:10px;text-align:center;text-decoration:none;display:block;font-weight:bold;margin-top:10px;}</style>', unsafe_allow_html=True)
+# CSS para Otimização Máxima (Botões em linha e sem nan)
+st.markdown('''
+<style>
+    .block-container {padding-top: 1rem;}
+    [data-testid="stHorizontalBlock"] {gap: 5px !important;}
+    .stButton>button {width: 100% !important; height: 2.8rem !important; padding: 0px !important;}
+    .card-pedido {border: 1px solid #2e7d32; padding: 10px; border-radius: 8px; background-color: #0e1117; margin-bottom: 5px;}
+    p {margin-bottom: 2px !important;}
+</style>
+''', unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def carregar_produtos():
-    try:
-        df = conn.read(worksheet="Produtos", ttl=0).dropna(how="all")
-        df.columns = [str(c).lower().strip() for c in df.columns]
-        return df[df['status'].astype(str).str.lower() != 'oculto']
-    except: return pd.DataFrame()
-
+# --- FUNÇÃO DE CARGA ---
 def carregar_pedidos():
     try:
-        # Tenta ler a aba Pedidos
         df = conn.read(worksheet="Pedidos", ttl=0).dropna(how="all")
         df.columns = [str(c).lower().strip() for c in df.columns]
-        return df
+        # Limpa todos os 'nan' do DataFrame inteiro de uma vez
+        return df.fillna('')
     except:
-        # Se der erro (aba não existe), retorna um DataFrame vazio com as colunas certas
-        return pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"])
+        return pd.DataFrame()
 
-aba1, aba2 = st.tabs(["🛒 Novo Pedido", "🚜 Colheita"])
+# --- MENUS (ABAS) NO TOPO ---
+aba1, aba2, aba3 = st.tabs(["🛒 Venda", "🚜 Colheita", "⚖️ Montagem"])
 
 with aba1:
-    if 'form_id' not in st.session_state: st.session_state.form_id = 0
-    f_id = st.session_state.form_id
-    st.header("🛒 Novo Pedido")
-    
-    c1, c2 = st.columns(2)
-    n_cli = c1.text_input("Cliente", key=f"n_{f_id}").upper()
-    e_cli = c2.text_input("Endereço", key=f"e_{f_id}").upper()
-    pg = st.toggle("Pago?", key=f"p_{f_id}")
-    o_ped = st.text_input("Observação", key=f"o_{f_id}")
-    
-    st.divider()
-    df_p = carregar_produtos()
-    carrinho = []; total_v = 0.0
-    
-    if not df_p.empty:
-        for i, r in df_p.iterrows():
-            col_n, col_p, col_q = st.columns([2.5, 1.2, 1.3])
-            p_u = float(str(r['preco']).replace(',', '.'))
-            tipo = str(r.get('tipo', 'UN')).upper()
-            col_n.markdown(f"**{r['nome']}**")
-            if tipo == "KG": col_p.caption("PESAGEM")
-            else: col_p.write(f"R$ {p_u:.2f}")
-            qtd = col_q.number_input("Q", min_value=0, step=1, key=f"q_{r['id']}_{f_id}", label_visibility="collapsed")
-            if qtd > 0:
-                sub = 0.0 if tipo == "KG" else (qtd * p_u)
-                total_v += sub
-                carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": tipo})
-    
-    st.subheader(f"💰 TOTAL: R$ {total_v:.2f}")
-    if st.button("💾 FINALIZAR PEDIDO", type="primary"):
-        if n_cli and carrinho:
-            df_v = carregar_pedidos()
-            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": "PAGO" if pg else "A PAGAR", "obs": o_ped}])
-            conn.update(worksheet="Pedidos", data=pd.concat([df_v, novo], ignore_index=True))
-            st.session_state.form_id += 1; st.success("Pedido Salvo!"); st.rerun()
+    st.info("Focando na aba de Montagem...")
 
 with aba2:
-    st.header("🚜 Lista de Colheita")
-    df_pedidos = carregar_pedidos()
-    if not df_pedidos.empty:
-        # Filtra apenas quem está 'Pendente'
-        pendentes = df_pedidos[df_pedidos['status'].str.lower() == 'pendente']
-        if not pendentes.empty:
-            resumo = {}
-            for _, ped in pendentes.iterrows():
+    st.info("Focando na aba de Montagem...")
+
+# --- FOCO TOTAL: ABA 3 MONTAGEM ---
+with aba3:
+    df_m = carregar_pedidos()
+    
+    if not df_m.empty and 'status' in df_m.columns:
+        # Filtra apenas pendentes
+        pendentes = df_m[df_m['status'].str.lower() == 'pendente']
+        
+        if pendentes.empty:
+            st.success("Tudo montado! Nenhum pedido pendente.")
+        
+        for idx, row in pendentes.iterrows():
+            # Pegando os dados limpos (sem nan)
+            cliente = str(row['cliente']).upper()
+            endereco = str(row['endereco']).upper()
+            observacao = str(row.get('obs', ''))
+            pagamento = str(row.get('pagamento', 'A PAGAR'))
+            id_pedido = str(row['id'])
+
+            with st.container():
+                # Card de Identificação
+                st.markdown(f'''
+                    <div class="card-pedido">
+                        <b>👤 {cliente}</b><br>
+                        📍 {endereco if endereco else "SEM ENDEREÇO"}
+                    </div>
+                ''', unsafe_allow_html=True)
+                
+                if observacao:
+                    st.caption(f"💬 {observacao}")
+
+                # Processando Itens
                 try:
-                    for it in json.loads(ped['itens']):
-                        chave = f"{it['nome']} ({it.get('tipo', 'UN')})"
-                        resumo[chave] = resumo.get(chave, 0) + it['qtd']
-                except: continue
-            
-            txt_zap = f"*LISTA DE COLHEITA - {datetime.now().strftime('%d/%m/%Y')}*\n\n"
-            for item, qtd in resumo.items():
-                st.write(f"🟢 **{qtd}x** {item}")
-                txt_zap += f"• {qtd}x {item}\n"
-            
-            link = f"https://wa.me/?text={urllib.parse.quote(txt_zap)}"
-            st.markdown(f'<a href="{link}" target="_blank" class="btn-whatsapp">🟢 COMPARTILHAR NO WHATSAPP</a>', unsafe_allow_html=True)
-        else: st.info("Nenhum pedido pendente.")
-    else: st.warning("Aba 'Pedidos' não encontrada ou vazia.")
+                    itens = json.loads(row['itens'])
+                except:
+                    itens = []
+                
+                total_atualizado = 0.0
+                
+                for i, item in enumerate(itens):
+                    c_nome, c_valor = st.columns([3, 2])
+                    
+                    if str(item.get('tipo', '')).upper() == "KG":
+                        # Campo de pesagem
+                        peso_valor = c_valor.number_input("R$", min_value=0.0, step=0.1, key=f"v_{id_pedido}_{i}", label_visibility="collapsed")
+                        item['subtotal'] = peso_valor
+                        c_nome.write(f"⚖️ **{item['nome']}**")
+                    else:
+                        # Item fixo
+                        c_nome.write(f"✅ {item['qtd']}x {item['nome']}")
+                        c_valor.write(f"R$ {item.get('subtotal', 0.0):.2f}")
+                    
+                    total_atualizado += float(item.get('subtotal', 0.0))
+
+                # Resumo de Valores
+                st.write(f"**TOTAL: R$ {total_atualizado:.2f}** | 💳 {pagamento}")
+
+                # --- BOTÕES LADO A LADO (4 COLUNAS) ---
+                b1, b2, b3, b4 = st.columns(4)
+
+                # 1. FINALIZAR (Sobe para a planilha e some da tela)
+                if b1.button("📦 OK", key=f"ok_{id_pedido}"):
+                    df_m.at[idx, 'status'] = 'Pronto'
+                    df_m.at[idx, 'total'] = total_atualizado
+                    df_m.at[idx, 'itens'] = json.dumps(itens)
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
+
+                # 2. ETIQUETA (RawBT) - Sem "Cliente:" ou "Endereço:", só os dados
+                texto_etiq = f"{cliente}\n{endereco}"
+                if observacao: texto_etiq += f"\nOBS: {observacao}"
+                texto_etiq += f"\n\nVALOR: R$ {total_atualizado:.2f}\n{pagamento}"
+                
+                b64_etiq = base64.b64encode(texto_etiq.encode()).decode()
+                link_print = f"intent:base64,{b64_etiq}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+                b2.markdown(f'<a href="{link_print}"><button style="width:100%;height:2.8rem;background:#444;color:white;border:none;border-radius:5px;font-weight:bold;">🖨️</button></a>', unsafe_allow_html=True)
+
+                # 3. MARCAR COMO PAGO
+                if b3.button("💳 $", key=f"pg_{id_pedido}"):
+                    df_m.at[idx, 'pagamento'] = 'PAGO'
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
+
+                # 4. EXCLUIR
+                if b4.button("🗑️", key=f"del_{id_pedido}"):
+                    df_m = df_m.drop(idx)
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
+
+                st.divider()
+    else:
+        st.info("Nenhum pedido encontrado na planilha.")
