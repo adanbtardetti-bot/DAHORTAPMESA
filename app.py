@@ -29,7 +29,8 @@ def carregar_pedidos():
         # Se der erro (aba não existe), retorna um DataFrame vazio com as colunas certas
         return pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"])
 
-aba1, aba2 = st.tabs(["🛒 Novo Pedido", "🚜 Colheita"])
+aba1, aba2, aba3 = st.tabs(["🛒 Novo Pedido", "🚜 Colheita", "⚖️ Montagem"])
+
 
 with aba1:
     if 'form_id' not in st.session_state: st.session_state.form_id = 0
