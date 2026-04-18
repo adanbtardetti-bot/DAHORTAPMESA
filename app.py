@@ -9,13 +9,13 @@ from datetime import datetime
 # Configuração de página
 st.set_page_config(page_title="Horta Gestão", layout="centered")
 
-# CSS para Otimização Extrema e Botões Lado a Lado
+# CSS para fixar abas e compactar botões (lado a lado)
 st.markdown('''
 <style>
-    .block-container {padding-top: 1rem; padding-bottom: 0rem;}
-    div[data-testid="stColumn"] {display: flex; align-items: center; justify-content: center;}
-    .card {border: 1px solid #2e7d32; padding: 8px; border-radius: 8px; background-color: #0e1117; line-height: 1.2;}
-    .stButton>button {width: 100%; height: 2.5rem; padding: 0px;}
+    .block-container {padding-top: 1rem;}
+    .card {border: 1px solid #2e7d32; padding: 8px; border-radius: 8px; background-color: #0e1117; margin-bottom: 5px;}
+    div[data-testid="stHorizontalBlock"] {gap: 5px;}
+    .stButton>button {width: 100% !important; height: 2.8rem !important; padding: 0px !important;}
 </style>
 ''', unsafe_allow_html=True)
 
@@ -36,26 +36,27 @@ def carregar_pedidos():
     except:
         return pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"])
 
+# CRIAÇÃO DAS ABAS - Isso garante que os menus apareçam
 aba1, aba2, aba3 = st.tabs(["🛒 Venda", "🚜 Colheita", "⚖️ Montagem"])
 
 # --- ABA 1: VENDA ---
 with aba1:
     if 'form_id' not in st.session_state: st.session_state.form_id = 0
     f_id = st.session_state.form_id
-    c1, c2 = st.columns(2)
-    n_cli = c1.text_input("Cliente", key=f"n_{f_id}").upper()
-    e_cli = c2.text_input("Endereço", key=f"e_{f_id}").upper()
-    pg = st.toggle("Pago?", key=f"p_{f_id}")
-    o_ped = st.text_input("Obs", key=f"o_{f_id}")
+    n_cli = st.text_input("Cliente", key=f"n_{f_id}").upper()
+    e_cli = st.text_input("Endereço", key=f"e_{f_id}").upper()
+    c_aux = st.columns(2)
+    pg = c_aux[0].toggle("Pago?", key=f"p_{f_id}")
+    o_ped = c_aux[1].text_input("Obs", key=f"o_{f_id}")
     
     df_p = carregar_produtos()
     carrinho = []; total_v = 0.0
     if not df_p.empty:
         for i, r in df_p.iterrows():
-            col_n, col_p, col_q = st.columns([2.5, 1.2, 1.3])
+            col_n, col_q = st.columns([3, 2])
             p_u = float(str(r['preco']).replace(',', '.'))
             col_n.write(f"**{r['nome']}**")
-            qtd = col_q.number_input("Q", min_value=0, step=1, key=f"q_{r['id']}_{f_id}", label_visibility="collapsed")
+            qtd = col_q.number_input("Qtd", min_value=0, step=1, key=f"q_{r['id']}_{f_id}", label_visibility="collapsed")
             if qtd > 0:
                 sub = 0.0 if str(r.get('tipo', 'UN')).upper() == "KG" else (qtd * p_u)
                 total_v += sub
@@ -85,30 +86,24 @@ with aba2:
             for item, qtd in resumo.items():
                 st.write(f"🟢 **{qtd}x** {item}")
             txt_zap = f"*COLHEITA {datetime.now().strftime('%d/%m/%Y')}*\n" + "\n".join([f"• {qtd}x {it}" for it, qtd in resumo.items()])
-            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_zap)}" target="_blank" class="btn-whatsapp">🟢 WHATSAPP</a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_zap)}" target="_blank" style="background:#25d366;color:white;padding:10px;display:block;text-align:center;border-radius:8px;text-decoration:none;">🟢 ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# --- ABA 3: MONTAGEM (SEM NAN E COM BOTÕES LADO A LADO) ---
+# --- ABA 3: MONTAGEM ---
 with aba3:
     df_m = carregar_pedidos()
     if not df_m.empty:
         pend_m = df_m[df_m['status'].str.lower() == 'pendente']
         for idx, row in pend_m.iterrows():
+            # Limpeza de campos vazios (tira o 'nan')
+            cli = str(row['cliente']).replace('nan', '').strip()
+            end = str(row['endereco']).replace('nan', '').strip()
+            obs = str(row.get('obs', '')).replace('nan', '').strip()
+            
             with st.container():
-                # Limpeza de NAN para exibição e etiqueta
-                cli = str(row['cliente']).replace('nan', '').strip()
-                end = str(row['endereco']).replace('nan', '').strip()
-                obs = str(row.get('obs', '')).replace('nan', '').strip()
+                st.markdown(f'<div class="card"><b>👤 {cli}</b><br>📍 {end if end else "S/ Endereço"}</div>', unsafe_allow_html=True)
+                if obs: st.caption(f"💬 {obs}")
                 
-                # Card de Identificação
-                header_text = f"<b>{cli}</b>"
-                if end: header_text += f" | {end}"
-                if obs: header_text += f"<br><small><i>💬 {obs}</i></small>"
-                
-                st.markdown(f'<div class="card">{header_text}</div>', unsafe_allow_html=True)
-                
-                try: itens_m = json.loads(row['itens'])
-                except: itens_m = []
-                
+                itens_m = json.loads(row['itens']) if isinstance(row['itens'], str) else []
                 t_at = 0.0
                 for i, it in enumerate(itens_m):
                     c_i, c_v = st.columns([3, 2])
@@ -123,31 +118,30 @@ with aba3:
 
                 st.write(f"**Total: R$ {t_at:.2f}** | {row['pagamento']}")
                 
-                # Botões Lado a Lado (Otimizado)
-                b1, b2, b3, b4 = st.columns(4)
+                # BOTÕES LADO A LADO (4 colunas)
+                b_col1, b_col2, b_col3, b_col4 = st.columns(4)
                 
-                if b1.button("📦 OK", key=f"ok_{row['id']}"):
+                if b_col1.button("📦", key=f"ok_{row['id']}", help="Finalizar"):
                     df_m.at[idx, 'status'] = 'Pronto'
                     df_m.at[idx, 'total'] = t_at
                     df_m.at[idx, 'itens'] = json.dumps(itens_m)
                     conn.update(worksheet="Pedidos", data=df_m)
                     st.rerun()
 
-                # ETIQUETA SEM NAN
-                etiq_txt = cli
-                if end: etiq_txt += f"\n{end}"
-                etiq_txt += f"\n\nTOTAL: R$ {t_at:.2f}\nSTATUS: {row['pagamento']}"
-                
-                b64_e = base64.b64encode(etiq_txt.encode()).decode()
-                b2.markdown(f'<a href="intent:base64,{b64_e}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"><button style="width:100%; height:2.5rem; background:#444; color:white; border:none; border-radius:5px; font-weight:bold;">🖨️</button></a>', unsafe_allow_html=True)
+                # ETIQUETA SEM TÍTULOS INÚTEIS
+                etiq = f"{cli}\n{end}"
+                if obs: etiq += f"\nObs: {obs}"
+                etiq += f"\n\nVALOR: R$ {t_at:.2f}\n{row['pagamento']}"
+                b64 = base64.b64encode(etiq.encode()).decode()
+                b_col2.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"><button style="width:100%;height:2.8rem;background:#444;color:white;border:none;border-radius:5px;">🖨️</button></a>', unsafe_allow_html=True)
 
-                if b3.button("💳", key=f"p_{row['id']}"):
+                if b_col3.button("💳", key=f"p_{row['id']}"):
                     df_m.at[idx, 'pagamento'] = 'PAGO'
                     conn.update(worksheet="Pedidos", data=df_m)
                     st.rerun()
 
-                if b4.button("🗑️", key=f"d_{row['id']}"):
+                if b_col4.button("🗑️", key=f"d_{row['id']}"):
                     df_m = df_m.drop(idx)
                     conn.update(worksheet="Pedidos", data=df_m)
                     st.rerun()
-                st.markdown("---")
+                st.divider()
