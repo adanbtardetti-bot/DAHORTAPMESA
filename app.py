@@ -94,4 +94,20 @@ if st.button("💾 FINALIZAR E LIMPAR", type="primary"):
                 "id": int(datetime.now().timestamp()),
                 "cliente": nome_cli,
                 "endereco": end_cli,
-                "itens":
+                "itens": json.dumps(carrinho),
+                "status": "Pendente",
+                "data": datetime.now().strftime("%d/%m/%Y"),
+                "total": total_venda,
+                "pagamento": "PAGO" if pago else "A PAGAR",
+                "obs": obs_ped
+            }])
+            conn.update(worksheet="Pedidos", data=pd.concat([df_v, novo], ignore_index=True))
+            
+            st.success("Pedido Salvo com Sucesso!")
+            # O SEGREDO PARA ZERAR TUDO:
+            st.rerun() 
+            
+        except Exception as e:
+            st.error(f"Erro ao salvar: {e}")
+    else:
+        st.warning("Preencha o nome e escolha os produtos!")
