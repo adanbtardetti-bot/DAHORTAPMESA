@@ -28,13 +28,22 @@ PAGAMENTO_A_PAGAR = "A PAGAR"
 
 # ── Data Access Layer ────────────────────────────────────────
 
-def ler_aba(aba: str) -> pd.DataFrame:
+# Short TTL for display reads — avoids hammering the API on every rerun.
+# Write handlers pass ttl=0 when they need guaranteed-fresh data.
+DEFAULT_READ_TTL = 30  # seconds
+
+
+def ler_aba(aba: str, ttl: int = DEFAULT_READ_TTL) -> pd.DataFrame:
     """Read and clean a Google Sheets worksheet.
+
+    Args:
+        aba: worksheet name
+        ttl: cache lifetime in seconds. 0 = bypass cache (use before writes).
 
     Returns an empty DataFrame on failure and shows a user-visible error.
     """
     try:
-        df = conn.read(worksheet=aba, ttl=0)
+        df = conn.read(worksheet=aba, ttl=ttl)
     except Exception as e:
         st.error(f"Erro ao ler aba '{aba}': {e}")
         return pd.DataFrame()
@@ -59,9 +68,14 @@ def ler_aba(aba: str) -> pd.DataFrame:
 
 
 def salvar_aba(aba: str, df: pd.DataFrame):
-    """Write a DataFrame back to a Google Sheets worksheet."""
+    """Write a DataFrame back to a Google Sheets worksheet.
+
+    Clears the Streamlit connection cache after writing so the next
+    rerun picks up the change without waiting for TTL expiry.
+    """
     try:
         conn.update(worksheet=aba, data=df)
+        conn.reset()  # invalidate cached reads
     except Exception as e:
         st.error(f"Erro ao salvar aba '{aba}': {e}")
 
@@ -198,7 +212,7 @@ def render_tab_novo_pedido(tab):
         if st.button("💾 FINALIZAR PEDIDO", type="primary", key=f"btn_s_{f}"):
             if n_cli and carrinho:
                 # Fresh read before write to avoid overwriting concurrent changes
-                df_atual = ler_aba("Pedidos")
+                df_atual = ler_aba("Pedidos", ttl=0)
                 novo = pd.DataFrame([
                     {
                         "id": int(datetime.now().timestamp()),
@@ -318,7 +332,7 @@ def render_tab_montagem(tab):
 
                 if col_ok.button("📦 OK", key=f"ok_{row['id']}", use_container_width=True):
                     # Fresh read before write to avoid stale data
-                    df_fresh = ler_aba("Pedidos")
+                    df_fresh = ler_aba("Pedidos", ttl=0)
                     match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
                     if not match.empty:
                         df_fresh.at[match[0], "status"] = "Pronto"
@@ -329,7 +343,7 @@ def render_tab_montagem(tab):
 
                 if col_delete.button("🗑️", key=f"del_{row['id']}"):
                     # Fresh read before write to avoid stale data
-                    df_fresh = ler_aba("Pedidos")
+                    df_fresh = ler_aba("Pedidos", ttl=0)
                     match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
                     if not match.empty:
                         df_fresh = df_fresh.drop(match[0]).reset_index(drop=True)
