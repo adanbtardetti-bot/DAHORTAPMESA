@@ -290,12 +290,21 @@ h2 {
     background: linear-gradient(120deg, #fff5df 0%, #ffeabf 100%);
 }
 
-.m-actions {
-    margin-top: 0.12rem;
+
+.m-actions-anchor {
+    height: 0;
+    margin: 0;
+    padding: 0;
 }
 
-.m-actions-secondary {
-    margin-top: 0.06rem;
+.m-actions-ok + div[data-testid="stHorizontalBlock"] {
+    margin-top: 0.12rem;
+    margin-bottom: 0.08rem;
+}
+
+.m-actions-secondary + div[data-testid="stHorizontalBlock"] {
+    margin-top: 0 !important;
+    margin-bottom: 0;
 }
 
 div[data-testid="stHorizontalBlock"]:has(.btn-print) {
@@ -378,12 +387,13 @@ div[data-testid="stHorizontalBlock"]:has(.btn-print) > div {
         font-size: 0.8rem;
     }
 
-    .m-actions {
-        margin-top: 0.14rem;
+    .m-actions-ok + div[data-testid="stHorizontalBlock"] {
+        margin-top: 0.12rem;
+        margin-bottom: 0.06rem;
     }
 
-    .m-actions-secondary {
-        margin-top: 0.04rem;
+    .m-actions-secondary + div[data-testid="stHorizontalBlock"] {
+        margin-top: 0 !important;
     }
 
     div[data-testid="stHorizontalBlock"]:has(.btn-print) {

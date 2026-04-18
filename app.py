@@ -228,9 +228,9 @@ def render_tab_montagem(tab):
                         total_m += float(it['subtotal'])
 
                     st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-                    st.markdown("<div class='m-actions m-actions-ok'></div>", unsafe_allow_html=True)
+                    st.markdown("<div class='m-actions-anchor m-actions-ok'></div>", unsafe_allow_html=True)
                     col_ok = st.columns(1)[0]
-                    st.markdown("<div class='m-actions m-actions-secondary'></div>", unsafe_allow_html=True)
+                    st.markdown("<div class='m-actions-anchor m-actions-secondary'></div>", unsafe_allow_html=True)
                     col_print, col_delete = st.columns(2, gap="small")
 
                     txt_e = f"{row['cliente']}\n{row['endereco']}\n\nTOTAL: R$ {total_m:.2f}"
