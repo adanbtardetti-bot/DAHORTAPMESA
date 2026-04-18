@@ -3,170 +3,168 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import json
 import base64
+import urllib.parse
 from datetime import datetime
 
-# --- CONFIGURAÇÃO E ESTILO ---
+# --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Horta Gestão", layout="centered")
 
+# CSS para garantir o alinhamento que você gosta (Venda e Botões)
 st.markdown("""
     <style>
-    .stButton>button { border-radius: 10px; height: 3em; width: 100%; font-weight: bold; }
-    .stTextInput>div>div>input { background-color: #f9f9f9; }
-    [data-testid="stMetric"] { background: white; padding: 10px; border-radius: 15px; border: 1px solid #eee; }
-    div[data-testid="stContainer"] { background: white; padding: 10px; border-radius: 12px; border: 1px solid #f0f0f0; margin-bottom: 5px; }
-    .total-card { background: #2e7d32; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 15px; }
+    div[data-testid="stColumn"] { display: flex; align-items: center; justify-content: flex-start; }
+    .stNumberInput div { margin-top: 0px; }
+    .btn-whatsapp { background-color: #25d366; color: white; padding: 10px; border-radius: 10px; text-align: center; text-decoration: none; display: block; font-weight: bold; }
+    .card-montagem { border: 1px solid #2e7d32; padding: 10px; border-radius: 10px; background-color: #0e1117; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def carregar(aba):
+# --- FUNÇÕES DE APOIO ---
+def carregar_pedidos():
     try:
-        df = conn.read(worksheet=aba, ttl=0).dropna(how="all")
+        df = conn.read(worksheet="Pedidos", ttl=0).dropna(how="all")
         df.columns = [str(c).lower().strip() for c in df.columns]
         return df
-    except:
-        if aba == "Produtos":
-            return pd.DataFrame(columns=["id", "nome", "preco", "tipo", "status"])
-        return pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"])
+    except: return pd.DataFrame(columns=["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"])
 
-df_p = carregar("Produtos")
-df_v = carregar("Pedidos")
+def carregar_produtos():
+    try:
+        df = conn.read(worksheet="Produtos", ttl=0).dropna(how="all")
+        df.columns = [str(c).lower().strip() for c in df.columns]
+        return df
+    except: return pd.DataFrame()
 
-tab = st.tabs(["🛒 Vendas", "🚜 Colheita", "⚖️ Montagem", "📦 Estoque", "📊 Financeiro", "🕒 Histórico"])
+# --- ABAS ---
+tab1, tab2, tab3 = st.tabs(["🛒 Novo Pedido", "🚜 Colheita", "⚖️ Montagem"])
 
-# --- 1. TELA DE VENDAS (OTIMIZADA) ---
-with tab[0]:
-    st.subheader("Novo Pedido")
+# --- 1. NOVO PEDIDO (VOLTOU AO ORIGINAL) ---
+with tab1:
+    if 'form_id' not in st.session_state: st.session_state.form_id = 0
+    f_id = st.session_state.form_id
     
-    # Informações fixas no topo
-    col_cli, col_end = st.columns(2)
-    nome = col_cli.text_input("Cliente").upper()
-    ende = col_end.text_input("Endereço").upper()
+    st.header("🛒 Novo Pedido")
+    c_n, c_e = st.columns(2)
+    nome_cli = c_n.text_input("Cliente", key=f"n_{f_id}").upper()
+    end_cli = c_e.text_input("Endereço", key=f"e_{f_id}").upper()
     
-    col_pg, col_obs = st.columns([1, 2])
-    pago_venda = col_pg.checkbox("PAGO?")
-    obs_venda = col_obs.text_input("Observação (opcional)")
-
+    c_p, c_o = st.columns([1, 2])
+    pago_v = c_p.toggle("Pago?", key=f"p_{f_id}")
+    obs_v = c_o.text_input("Observação", key=f"o_{f_id}")
+    
     st.divider()
-    
-    # BARRA DE BUSCA PARA MUITOS PRODUTOS
-    busca = st.text_input("🔍 Pesquisar produto...", "").strip().lower()
-    
-    carrinho = []
-    total_live = 0.0
+    df_p = carregar_produtos()
+    carrinho = []; total_v = 0.0
     
     if not df_p.empty:
-        # Filtra apenas Ativos e pelo que foi buscado
-        produtos_visiveis = df_p[df_p['status'].astype(str).str.lower() != 'oculto']
-        if busca:
-            produtos_visiveis = produtos_visiveis[produtos_visiveis['nome'].str.lower().contains(busca)]
-        
-        for i, r in produtos_visiveis.iterrows():
-            with st.container():
-                c1, c2, c3 = st.columns([2, 1, 1])
-                p_u = float(str(r.get('preco', 0)).replace(',', '.'))
-                c1.markdown(f"**{r['nome']}**")
-                c2.write(f"R$ {p_u:.2f}")
-                q = c3.number_input("Qtd", min_value=0, step=1, key=f"v_{i}")
+        for i, row in df_p.iterrows():
+            if str(row.get('status', '')).lower() == 'oculto': continue
+            col_nome, col_preco, col_qtd = st.columns([2.5, 1.2, 1.3])
+            
+            p_unit = float(str(row['preco']).replace(',', '.'))
+            tipo = str(row.get('tipo', 'UN')).upper()
+            
+            col_nome.markdown(f"**{row['nome']}**")
+            if tipo == "KG": col_preco.caption("PESAGEM")
+            else: col_preco.write(f"R$ {p_unit:.2f}")
+            
+            qtd = col_qtd.number_input("Qtd", min_value=0, step=1, key=f"q_{row['id']}_{f_id}", label_visibility="collapsed")
+            
+            if qtd > 0:
+                sub = 0.0 if tipo == "KG" else (qtd * p_unit)
+                total_v += sub
+                carrinho.append({"nome": row['nome'], "qtd": qtd, "preco": p_unit, "subtotal": sub, "tipo": tipo})
                 
-                if q > 0:
-                    sub = q * p_u
-                    total_live += sub
-                    carrinho.append({"nome": r['nome'], "qtd": q, "tipo": r['tipo'], "preco": p_u, "subtotal": sub})
-
-    # Total e Botão Salvar
-    st.markdown(f"<div class='total-card'><h3>TOTAL: R$ {total_live:.2f}</h3></div>", unsafe_allow_html=True)
-    
-    if st.button("💾 CONCLUIR E SALVAR PEDIDO", type="primary"):
-        if nome and carrinho:
-            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": nome, "endereco": ende, "itens": json.dumps(carrinho), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_live, "pagamento": "PAGO" if pago_venda else "A PAGAR", "obs": obs_venda}])
+    st.divider()
+    st.subheader(f"💰 TOTAL: R$ {total_v:.2f}")
+    if st.button("💾 FINALIZAR E LIMPAR", type="primary", use_container_width=True):
+        if nome_cli and carrinho:
+            df_v = carregar_pedidos()
+            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": nome_cli, "endereco": end_cli, "itens": json.dumps(carrinho), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": "PAGO" if pago_v else "A PAGAR", "obs": obs_v}])
             conn.update(worksheet="Pedidos", data=pd.concat([df_v, novo], ignore_index=True))
-            st.success("Pedido registrado!"); st.rerun()
-        else:
-            st.error("Preencha o nome e selecione itens!")
+            st.session_state.form_id += 1
+            st.rerun()
 
-# --- 2. TELA DE COLHEITA (SOMA AUTOMÁTICA) ---
-with tab[1]:
-    st.subheader("O que colher agora")
-    if not df_v.empty:
-        pendentes = df_v[df_v['status'].astype(str).str.lower() == 'pendente']
-        soma_colheita = {}
-        for _, p in pendentes.iterrows():
-            try:
-                for it in json.loads(p['itens']):
-                    n = it['nome']; soma_colheita[n] = soma_colheita.get(n, 0) + it['qtd']
-            except: pass
+# --- 2. COLHEITA (VOLTOU AO ORIGINAL) ---
+with tab2:
+    st.header("🚜 Lista de Colheita")
+    df_ped = carregar_pedidos()
+    if not df_ped.empty and 'status' in df_ped.columns:
+        pend = df_ped[df_ped['status'].str.lower() == 'pendente']
+        if not pend.empty:
+            resumo = {}
+            for _, p in pend.iterrows():
+                try:
+                    for it in json.loads(p['itens']):
+                        k = f"{it['nome']} ({it.get('tipo', 'UN')})"
+                        resumo[k] = resumo.get(k, 0) + it['qtd']
+                except: continue
+            
+            txt_zap = f"*LISTA DE COLHEITA - {datetime.now().strftime('%d/%m/%Y')}*\n\n"
+            for k, v in resumo.items():
+                st.write(f"🟢 **{v}x** {k}")
+                txt_zap += f"• {v}x {k}\n"
+            
+            st.divider()
+            link_z = f"https://wa.me/?text={urllib.parse.quote(txt_zap)}"
+            st.markdown(f'<a href="{link_z}" target="_blank" class="btn-whatsapp">🟢 COMPARTILHAR NO WHATSAPP</a>', unsafe_allow_html=True)
+        else: st.info("Nada pendente.")
+
+# --- 3. MONTAGEM (OTIMIZADA E SEM ERROS) ---
+with tab3:
+    st.header("⚖️ Montagem")
+    df_m = carregar_pedidos()
+    if not df_m.empty and 'status' in df_m.columns:
+        pend_m = df_m[df_m['status'].str.lower() == 'pendente']
         
-        if soma_colheita:
-            for p, q in soma_colheita.items():
-                st.write(f"🥦 **{p}**: {q}")
-        else: st.write("Nenhum pedido pendente.")
-
-# --- 3. TELA DE MONTAGEM (COM ENDEREÇO E OBS) ---
-with tab[2]:
-    st.subheader("Pedidos para Montar")
-    if not df_v.empty:
-        pendentes = df_v[df_v['status'].astype(str).str.lower() == 'pendente']
-        for idx, p in pendentes.iterrows():
+        for idx, row in pend_m.iterrows():
             with st.container():
-                st.write(f"👤 **{p['cliente']}**")
-                if p.get('endereco') and str(p['endereco']) != 'nan': st.caption(f"📍 {p['endereco']}")
-                if p.get('obs') and str(p['obs']) != 'nan' and p['obs'].strip() != "": st.info(f"💡 {p['obs']}")
+                # Título do Card
+                st.markdown(f'<div class="card-montagem"><b>👤 {row["cliente"]}</b> | 📍 {row["endereco"]}</div>', unsafe_allow_html=True)
                 
-                try: its = json.loads(p['itens'])
-                except: its = []
+                itens_m = json.loads(row['itens'])
+                t_atual = 0.0
                 
-                t_m, pronto = 0.0, True
-                for i, it in enumerate(its):
-                    if str(it.get('tipo', '')).upper() == "KG":
-                        peso = st.text_input(f"Peso {it['nome']}:", key=f"m_{idx}_{i}")
-                        if peso:
-                            v = float(peso.replace(',','.')); it['subtotal'] = v; t_m += v
-                        else: pronto = False
+                for i, item in enumerate(itens_m):
+                    c_it, c_v = st.columns([3, 2])
+                    if str(item.get('tipo', '')).upper() == "KG":
+                        # Campo para o valor pesado
+                        v_kg = c_v.number_input("Valor R$", min_value=0.0, step=0.1, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
+                        item['subtotal'] = v_kg
+                        c_it.write(f"⚖️ {item['nome']}")
                     else:
-                        st.write(f"• {it['qtd']}x {it['nome']}")
-                        t_m += float(it.get('subtotal', 0))
+                        c_it.write(f"✅ {item['qtd']}x {item['nome']}")
+                        # Busca o subtotal com segurança para não dar KeyError
+                        c_v.write(f"R$ {item.get('subtotal', 0.0):.2f}")
+                    
+                    t_atual += item.get('subtotal', 0.0)
+
+                st.write(f"**Total: R$ {t_atual:.2f}** | {row.get('pagamento', 'A PAGAR')}")
                 
-                st.write(f"**Total: R$ {t_m:.2f}**")
-                c1, c2, c3 = st.columns(3)
-                txt_imprimir = f"CLIENTE: {p['cliente']}\nTOTAL: R$ {t_m:.2f}"
-                link = f"intent:base64,{base64.b64encode(txt_imprimir.encode()).decode()}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
-                c1.markdown(f'<a href="{link}"><button style="width:100%; border-radius:10px; background:#444; color:white; border:none;">🖨️</button></a>', unsafe_allow_html=True)
-                if c2.button("🗑️", key=f"ex_{idx}"):
-                    conn.update(worksheet="Pedidos", data=df_v.drop(idx)); st.rerun()
-                if c3.button("✔️", key=f"ok_{idx}", type="primary", disabled=not pronto):
-                    df_v.at[idx, 'status'] = "Concluído"; df_v.at[idx, 'total'] = t_m; df_v.at[idx, 'itens'] = json.dumps(its)
-                    conn.update(worksheet="Pedidos", data=df_v); st.rerun()
+                # BOTÕES
+                b1, b2, b3, b4 = st.columns([1, 1, 0.8, 0.6])
+                
+                if b1.button("📦 OK", key=f"ok_{row['id']}"):
+                    df_m.at[idx, 'status'] = 'Pronto'
+                    df_m.at[idx, 'total'] = t_atual
+                    df_m.at[idx, 'itens'] = json.dumps(itens_m)
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
 
-# --- 4. ESTOQUE INTERATIVO ---
-with tab[3]:
-    st.subheader("Gestão de Estoque")
-    with st.expander("➕ NOVO PRODUTO"):
-        n_n = st.text_input("Nome")
-        n_p = st.text_input("Preço")
-        n_t = st.selectbox("Unidade", ["UN", "KG", "MAÇO"])
-        if st.button("CADASTRAR"):
-            novo_p = pd.DataFrame([{"id": int(datetime.now().timestamp()), "nome": n_n, "preco": n_p, "tipo": n_t, "status": "Ativo"}])
-            conn.update(worksheet="Produtos", data=pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
+                # Impressão RawBT
+                txt_e = f"{row['cliente']}\n{row['endereco']}\n\nR$ {t_atual:.2f}"
+                b64_e = base64.b64encode(txt_e.encode()).decode()
+                l_p = f"intent:base64,{b64_e}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;"
+                b2.markdown(f'<a href="{l_p}"><button style="width:100%; height:2.2rem; background:#444; color:white; border:none; border-radius:5px;">🖨️ Etiq</button></a>', unsafe_allow_html=True)
 
-    if not df_p.empty:
-        for idx, row in df_p.iterrows():
-            with st.container():
-                c1, c2, c3 = st.columns([2, 1, 1])
-                status_icon = "👁️" if row['status'] == "Ativo" else "🚫"
-                c1.write(f"{status_icon} **{row['nome']}**")
-                if c2.button("ATIVAR/OCULTAR", key=f"st_{idx}"):
-                    df_p.at[idx, 'status'] = "Oculto" if row['status'] == "Ativo" else "Ativo"
-                    conn.update(worksheet="Produtos", data=df_p); st.rerun()
-                if c3.button("APAGAR", key=f"delp_{idx}"):
-                    conn.update(worksheet="Produtos", data=df_p.drop(idx)); st.rerun()
+                if b3.button("💳 $", key=f"pg_{row['id']}"):
+                    df_m.at[idx, 'pagamento'] = 'PAGO'
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
 
-# --- FINANCEIRO E HISTÓRICO ---
-with tab[4]:
-    st.metric("Receita Total", f"R$ {df_v['total'].astype(float).sum():.2f}")
-    st.dataframe(df_v)
-
-with tab[5]:
-    st.write("Pedidos de Hoje")
-    st.dataframe(df_v[df_v['data'] == datetime.now().strftime("%d/%m/%Y")])
+                if b4.button("🗑️", key=f"del_{row['id']}"):
+                    df_m = df_m.drop(idx)
+                    conn.update(worksheet="Pedidos", data=df_m)
+                    st.rerun()
+                st.divider()
