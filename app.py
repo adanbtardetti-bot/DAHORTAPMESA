@@ -214,18 +214,18 @@ with aba5:
                 sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fs_{idx}")]
                 if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
 
-# --- 6. PRODUTOS (IGUAL AO LAYOUT DA MONTAGEM) ---
+# --- 6. PRODUTOS (LAYOUT CORRIGIDO LADO A LADO) ---
 with aba6:
     st.header("📦 Produtos")
     
     with st.expander("➕ Adicionar Novo Produto"):
         c_n, c_p, c_t = st.columns([3, 1, 1])
-        n_p = c_n.text_input("Nome", key="new_n").upper()
-        p_p = c_p.number_input("Preço", 0.0, key="new_p")
-        t_p = c_t.selectbox("Tipo", ["UN", "KG"], key="new_t")
-        if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
+        n_p = c_n.text_input("Nome", key="new_n_prod").upper()
+        p_p = c_p.number_input("Preço", 0.0, key="new_p_prod")
+        t_p = c_t.selectbox("Tipo", ["UN", "KG"], key="new_t_prod")
+        if st.button("SALVAR NOVO", type="primary", use_container_width=True):
             if n_p:
-                df_p = ler_aba("Produtos", 0)
+                df_p = ler_aba("Produtos", ttl=0)
                 novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
                 salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True))
                 st.rerun()
@@ -234,32 +234,37 @@ with aba6:
 
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
-            # Container para agrupar cada produto, igual aos cards da montagem
+            # Container para cada produto
             with st.container():
-                # Campos de edição
-                c1, c2, c3 = st.columns([2.5, 1, 1])
-                en = c1.text_input("Nome", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
-                ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
-                et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
+                # Nome em destaque
+                st.markdown(f"**{r['nome']}**")
                 
-                # Switch de Ativo e Botões na mesma linha horizontal
-                # Usamos colunas bem pequenas para os ícones ficarem juntos
-                c_status, b_save, b_del, _ = st.columns([1, 0.5, 0.5, 2])
+                # Primeira linha: Preço e Tipo
+                col_edit1, col_edit2 = st.columns(2)
+                ep = col_edit1.number_input("Preço", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
+                et = col_edit2.selectbox("Tipo", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
                 
-                est = c_status.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
+                # SEGUNDA LINHA: O segredo para ficar igual à montagem
+                # Criamos 4 colunas pequenas para os ícones ficarem grudados
+                c_ativo, c_salvar, c_lixo, c_vazia = st.columns([1.5, 0.6, 0.6, 2])
                 
-                if b_save.button("💾", key=f"sv_{idx}"):
-                    df_produtos.at[idx, 'nome'] = en
+                # Switch de Ativo
+                est = c_ativo.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
+                
+                # Botão Salvar (💾)
+                if c_salvar.button("💾", key=f"sv_{idx}"):
+                    df_produtos.at[idx, 'nome'] = r['nome'] # Mantém o nome original se não houver input de texto
                     df_produtos.at[idx, 'preco'] = ep
                     df_produtos.at[idx, 'tipo'] = et
                     df_produtos.at[idx, 'status'] = "Ativo" if est else "Inativo"
                     salvar_aba("Produtos", df_produtos)
                     st.rerun()
                 
-                if b_del.button("🗑️", key=f"dl_{idx}"):
-                    df_f = ler_aba("Produtos", 0)
+                # Botão Lixeira (🗑️)
+                if c_lixo.button("🗑️", key=f"dl_{idx}"):
+                    df_f = ler_aba("Produtos", ttl=0)
                     df_f = df_f.drop(idx)
                     salvar_aba("Produtos", df_f)
                     st.rerun()
                 
-                st.markdown("<hr style='margin:10px 0; opacity:0.2'>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin:10px 0; opacity:0.1'>", unsafe_allow_html=True)
