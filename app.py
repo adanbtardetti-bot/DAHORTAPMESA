@@ -247,15 +247,17 @@ with aba5:
             txt = f"*RELATÓRIO GRUPO ({d_g})*\nTotal: R$ {v_g:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in r_g.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# 6. PRODUTOS (NOVA ABA)
+# 6. PRODUTOS (LAYOUT COMPACTO)
 with aba6:
     st.header("📦 Produtos")
-    with st.expander("➕ Adicionar Novo Produto"):
+    
+    # Formulário de adição mais discreto
+    with st.expander("➕ Novo Produto", expanded=False):
         c_n, c_p, c_t = st.columns([3, 1, 1])
         n_p = c_n.text_input("Nome").upper()
-        p_p = c_p.number_input("Preço", 0.0)
+        p_p = c_p.number_input("Preço", 0.0, step=0.5)
         t_p = c_t.selectbox("Tipo", ["UN", "KG"])
-        if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
+        if st.button("SALVAR NOVO", type="primary", use_container_width=True):
             if n_p:
                 df_p = ler_aba("Produtos", 0)
                 novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
@@ -263,16 +265,48 @@ with aba6:
                 st.rerun()
 
     st.markdown("---")
+    
+    # Cabeçalho da Lista
+    hc1, hc2, hc3, hc4, hc5 = st.columns([3, 1, 1, 1, 1])
+    hc1.caption("PRODUTO")
+    hc2.caption("PREÇO")
+    hc3.caption("TIPO")
+    hc4.caption("STATUS")
+    hc5.caption("AÇÕES")
+
     df_l = ler_aba("Produtos", 0)
     for idx, r in df_l.iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
-        en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
-        ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
-        et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
-        status_ativo = (r['status'] == "Ativo")
-        est = c4.toggle("Ativo", value=status_ativo, key=f"es_{idx}")
-        if c5.button("💾", key=f"sv_{idx}"):
-            df_l.at[idx, 'nome'], df_l.at[idx, 'preco'], df_l.at[idx, 'tipo'], df_l.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
-            salvar_aba("Produtos", df_l); st.rerun()
-        if c6.button("🗑️", key=f"dl_{idx}"):
-            salvar_aba("Produtos", df_l.drop(idx)); st.rerun()
+        # Container compacto para cada linha
+        with st.container():
+            c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 1, 1])
+            
+            # Nome
+            en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
+            
+            # Preço
+            ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed", step=0.1)
+            
+            # Tipo
+            et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
+            
+            # Toggle de Status (Ativo/Inativo)
+            status_ativo = (r['status'] == "Ativo")
+            est = c4.toggle("On", value=status_ativo, key=f"es_{idx}", label_visibility="collapsed")
+            
+            # Botões de Ação lado a lado
+            btn_col1, btn_col2 = c5.columns(2)
+            if btn_col1.button("💾", key=f"sv_{idx}", help="Salvar alterações"):
+                df_l.at[idx, 'nome'] = en
+                df_l.at[idx, 'preco'] = ep
+                df_l.at[idx, 'tipo'] = et
+                df_l.at[idx, 'status'] = "Ativo" if est else "Inativo"
+                salvar_aba("Produtos", df_l)
+                st.rerun()
+                
+            if btn_col2.button("🗑️", key=f"dl_{idx}", help="Excluir produto"):
+                salvar_aba("Produtos", df_l.drop(idx))
+                st.rerun()
+        
+        st.markdown('<div style="margin-top:-15px;"><hr style="height:1px;border:none;color:#333;background-color:#333;" /></div>', unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
