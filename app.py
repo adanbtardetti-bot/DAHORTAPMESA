@@ -118,8 +118,6 @@ with aba2:
                     res[k] = res.get(k, 0) + it['qtd']
             except: continue
         for k, v in res.items(): st.write(f"🟢 **{v}x** {k}")
-        
-        # RESTAURADO: Botão do WhatsApp na Colheita
         txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
         st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
@@ -144,7 +142,6 @@ with aba3:
                 total_m += parse_float(it['subtotal'])
             
             st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-            
             c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
             if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
                 df_f = ler_aba("Pedidos", ttl=0)
@@ -156,77 +153,94 @@ with aba3:
                     df_f = ler_aba("Pedidos", ttl=0)
                     df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                     salvar_aba("Pedidos", df_f); st.rerun()
-            
             b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
             c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
-            
-            # RESTAURADO: Botão de Excluir na Montagem
             if c_del.button("🗑️", key=f"del_{row['id']}"):
                 df_f = ler_aba("Pedidos", ttl=0)
                 df_f = df_f[df_f["id"].astype(str) != str(row["id"])].reset_index(drop=True)
                 salvar_aba("Pedidos", df_f); st.rerun()
 
-# 4. HISTÓRICO
+# 4. HISTÓRICO (RESTAURADO VISUAL ORIGINAL)
 with aba4:
     st.header("📜 Histórico")
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
-    # CORRIGIDO: Exibição correta do histórico
-    hist_raw = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PRONTO]
-    hist = hist_raw[hist_raw["data"] == d_sel].sort_values("id", ascending=False)
+    hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
     
     if hist.empty:
-        st.info(f"Nenhum pedido finalizado em {d_sel}")
+        st.info(f"Sem pedidos em {d_sel}")
     else:
         for _, row in hist.iterrows():
             pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
             cor = "#28a745" if pago else "#dc3545"
-            st.markdown(f"""<div style="background:white; border-left:6px solid {cor}; padding:10px; color:black; border-radius:5px; margin-bottom:5px;">
-            <b>👤 {row['cliente']}</b> | {row['pagamento']}<br>📍 {row['endereco']}<br><b>R$ {parse_float(row['total']):.2f}</b></div>""", unsafe_allow_html=True)
-            with st.expander("📋 Detalhes"):
-                for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']} - R$ {it['subtotal']}")
+            # Visual de Card igual ao que você tinha
+            st.markdown(f"""
+            <div style="background-color:white; border-radius:10px; padding:15px; margin-bottom:10px; border-left:8px solid {cor}; color:black; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="display:flex; justify-content:space-between;">
+                    <b>👤 {row['cliente']}</b>
+                    <span style="background:{cor}; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">{row['pagamento']}</span>
+                </div>
+                <div style="color:gray; font-size:13px; margin:5px 0;">📍 {row['endereco']}</div>
+                <div style="font-size:18px; font-weight:bold; color:#2e7d32;">R$ {parse_float(row['total']):.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.expander("📋 Ver Detalhes"):
+                for it in json.loads(row['itens']):
+                    st.write(f"• {it['qtd']}x {it['nome']} - R$ {parse_float(it.get('subtotal',0)):.2f}")
                 if row['obs']: st.info(f"Obs: {row['obs']}")
 
 # 5. FINANCEIRO (ORGANIZADO)
 with aba5:
     st.header("💰 Financeiro")
-    op = st.radio("Relatório:", ["Panorama Hoje", "Por Período", "Grupo Manual"], horizontal=True)
+    menu = st.segmented_control("Relatório:", ["Dia", "Período", "Seleção Manual"], default="Dia")
 
-    if op == "Panorama Hoje":
+    if menu == "Dia":
         hoje = datetime.now().strftime("%d/%m/%Y")
         df_h = df_pedidos[df_pedidos["data"] == hoje]
-        v_tot = df_h['total'].apply(parse_float).sum()
-        it_res = {}
+        st.metric("Total Hoje", f"R$ {df_h['total'].apply(parse_float).sum():.2f}")
+        res_h = {}
         for _, r in df_h.iterrows():
             for it in json.loads(r['itens']):
-                it_res[it['nome']] = it_res.get(it['nome'], 0) + it['qtd']
-        st.metric("Total Hoje", f"R$ {v_tot:.2f}")
-        st.write("**Itens do dia:**")
-        for k, v in it_res.items(): st.write(f"• {v}x {k}")
+                res_h[it['nome']] = res_h.get(it['nome'], 0) + it['qtd']
+        st.table(pd.DataFrame([{"Produto": k, "Qtd": v} for k, v in res_h.items()]))
 
-    elif op == "Por Período":
+    elif menu == "Período":
         c1, c2 = st.columns(2)
-        ini, fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
-        df_pedidos['dt_aux'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y').dt.date
+        ini, fim = c1.date_input("Início", datetime.now() - timedelta(days=7)), c2.date_input("Fim", datetime.now())
+        df_pedidos['dt_aux'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
         df_per = df_pedidos[(df_pedidos['dt_aux'] >= ini) & (df_pedidos['dt_aux'] <= fim)]
-        v_per = df_per['total'].apply(parse_float).sum()
-        st.metric("Faturamento no Período", f"R$ {v_per:.2f}")
+        st.metric("Total no Período", f"R$ {df_per['total'].apply(parse_float).sum():.2f}")
         res_p = {}
         for _, r in df_per.iterrows():
             for it in json.loads(r['itens']):
                 res_p[it['nome']] = res_p.get(it['nome'], 0) + it['qtd']
-        st.table(pd.DataFrame([{"Item": k, "Qtd": v} for k, v in res_p.items()]))
+        st.table(pd.DataFrame([{"Produto": k, "Qtd": v} for k, v in res_p.items()]))
 
-    elif op == "Grupo Manual":
-        st.write("Marque os pedidos para o relatório:")
-        sel = []
-        for i, r in df_pedidos.tail(15).iterrows():
-            if st.checkbox(f"{r['cliente']} | R$ {r['total']} | {r['data']}", key=f"g_{r['id']}"):
-                sel.append(r)
-        if sel:
-            df_g = pd.DataFrame(sel)
-            st.metric("Total Selecionado", f"R$ {df_g['total'].apply(parse_float).sum():.2f}")
+    elif menu == "Seleção Manual":
+        st.subheader("Escolha os pedidos para o grupo:")
+        # Mostrar apenas pedidos recentes para não carregar demais a tela
+        df_lista = df_pedidos.tail(20).copy()
+        selecionados = []
+        
+        # Colunas para organizar a seleção
+        for i, r in df_lista.iterrows():
+            if st.checkbox(f"👤 {r['cliente']} (R$ {r['total']}) - {r['data']}", key=f"sel_{r['id']}"):
+                selecionados.append(r)
+        
+        if selecionados:
+            st.markdown("---")
+            st.subheader("📊 Resumo do Grupo")
+            df_g = pd.DataFrame(selecionados)
+            t_g = df_g['total'].apply(parse_float).sum()
+            st.metric("Total do Grupo", f"R$ {t_g:.2f}")
+            
             res_g = {}
             for _, r in df_g.iterrows():
                 for it in json.loads(r['itens']):
                     res_g[it['nome']] = res_g.get(it['nome'], 0) + it['qtd']
+            st.write("**Produtos Somados:**")
             for k, v in res_g.items(): st.write(f"• {v}x {k}")
+            
+            # WhatsApp do Relatório de Grupo
+            msg = f"*RELATÓRIO DE GRUPO*\nTotal: R$ {t_g:.2f}\n" + "\n".join([f"- {v}x {k}" for k, v in res_g.items()])
+            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg)}" target="_blank" class="btn-zap">ENVIAR RELATÓRIO</a>', unsafe_allow_html=True)
