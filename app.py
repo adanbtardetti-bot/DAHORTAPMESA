@@ -60,12 +60,18 @@ def parse_float(val):
 def ler_aba(aba, ttl=0):
     try:
         df = conn.read(worksheet=aba, ttl=ttl)
-        if df is None or df.empty: return pd.DataFrame()
+        if df is None or df.empty:
+            # Proteção contra erro de coluna inexistente se a planilha estiver vazia
+            cols = ["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"]
+            if aba == "Produtos": cols = ["id", "nome", "preco", "tipo", "status"]
+            return pd.DataFrame(columns=cols)
+        
         df.columns = [str(c).lower().strip() for c in df.columns]
         if aba == "Produtos" and "status" not in df.columns:
             df["status"] = "Ativo"
         return df.fillna("")
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
 def salvar_aba(aba, df):
     conn.update(worksheet=aba, data=df)
@@ -116,7 +122,7 @@ with aba1:
 # --- 2. COLHEITA ---
 with aba2:
     st.header("🚜 Colheita")
-    if not df_pedidos.empty:
+    if not df_pedidos.empty and "status" in df_pedidos.columns:
         pend = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
         if not pend.empty:
             res = {}
@@ -133,7 +139,7 @@ with aba2:
 # --- 3. MONTAGEM ---
 with aba3:
     st.header("⚖️ Montagem")
-    if not df_pedidos.empty:
+    if not df_pedidos.empty and "status" in df_pedidos.columns:
         pend_m = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
         for _, row in pend_m.iterrows():
             stpg = str(row.get("pagamento")).upper()
@@ -175,7 +181,7 @@ with aba3:
 with aba4:
     st.header("📜 Histórico")
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
-    if not df_pedidos.empty:
+    if not df_pedidos.empty and "status" in df_pedidos.columns:
         hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
         for _, row in hist.iterrows():
             pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
@@ -190,7 +196,7 @@ with aba4:
                     df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                     salvar_aba("Pedidos", df_f); st.rerun()
             with st.expander("📋 Detalhes"):
-                # MOSTRA QTD, NOME E VALOR DO ITEM
+                # MOSTRA VALOR POR ITEM
                 for it in json.loads(row['itens']): 
                     st.write(f"• {it['qtd']}x {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
@@ -199,37 +205,41 @@ with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
     def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
-        if df_res.empty: return st.warning("Nenhum dado."), None
+        if df_res.empty: return st.warning("Nenhum dado.")
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
         res = {}
         for _, r in df_res.iterrows():
-            for it in json.loads(r['itens']):
-                n = it['nome']
-                if n not in res: res[n] = {"qtd": 0, "val": 0.0}
-                res[n]["qtd"] += it['qtd']
-                res[n]["val"] += parse_float(it.get('subtotal', 0))
+            try:
+                for it in json.loads(r['itens']):
+                    n = it['nome']
+                    if n not in res: res[n] = {"qtd": 0, "val": 0.0}
+                    res[n]["qtd"] += it['qtd']
+                    res[n]["val"] += parse_float(it.get('subtotal', 0))
+            except: continue
         tab_dados = [{"Produto": k, "Qtd": v["qtd"], "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
         st.table(pd.DataFrame(tab_dados).sort_values("Total (R$)", ascending=False))
         
-        # BOTÃO COMPARTILHAR UNIFICADO
+        # BOTÃO WHATSAPP EM TODOS OS FILTROS
         txt = f"*{titulo_zap}*\nTotal: R$ {v_total:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
         st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
-        return v_total, res
 
-    if menu == "Dia": 
-        gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
-    elif menu == "Período":
-        c1, c2 = st.columns(2)
-        i, f = c1.date_input("De", datetime.now()-timedelta(days=7)), c2.date_input("Até", datetime.now())
-        df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-        gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)], f"RELATÓRIO DE {i.strftime('%d/%m')} A {f.strftime('%d/%m')}")
-    elif menu == "Seleção Manual":
-        d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
-        df_d = df_pedidos[df_pedidos["data"] == d_g]
-        sel = [r for i, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{r['id']}")]
-        if sel:
-            gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO SELECIONADO")
+    if not df_pedidos.empty and "data" in df_pedidos.columns:
+        if menu == "Dia": 
+            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DIA")
+        elif menu == "Período":
+            c1, c2 = st.columns(2)
+            i, f = c1.date_input("De", datetime.now()-timedelta(days=7)), c2.date_input("Até", datetime.now())
+            df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
+            gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)], "RELATÓRIO PERÍODO")
+        elif menu == "Seleção Manual":
+            d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
+            df_d = df_pedidos[df_pedidos["data"] == d_g]
+            if not df_d.empty:
+                sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{idx}")]
+                if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
+    else:
+        st.info("Nenhum dado financeiro disponível.")
 
 # --- 6. PRODUTOS ---
 with aba6:
