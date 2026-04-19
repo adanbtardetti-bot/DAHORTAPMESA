@@ -7,10 +7,9 @@ import base64
 import unicodedata
 from datetime import datetime, timedelta
 
-# --- CONFIGURAÇÕES ---
+# --- CONFIGURAÇÕES E SEU ESTILO ORIGINAL ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
-# SEU LAYOUT ORIGINAL (CSS RESTAURADO)
 st.markdown("""
     <style>
         .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
@@ -117,8 +116,6 @@ with aba3:
                 c_i, c_v = st.columns([3.5, 1.4])
                 if str(it['tipo']).upper() == "KG":
                     it['subtotal'] = c_v.number_input(f"R$ {it['nome']}", 0.0, key=f"m_{row['id']}_{i}")
-                else:
-                    c_v.write(f"R$ {parse_float(it['subtotal']):.2f}")
                 total_m += parse_float(it['subtotal'])
                 c_i.write(f"✅ {it['qtd']}x {it['nome']}")
             st.write(f"**TOTAL: R$ {total_m:.2f}**")
@@ -135,7 +132,7 @@ with aba3:
             if c_del.button("🗑️", key=f"del_{row['id']}"):
                 df_f = ler_aba("Pedidos", 0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.rerun()
 
-# 4. HISTÓRICO (LAYOUT ORIGINAL)
+# 4. HISTÓRICO (SEU LAYOUT ORIGINAL DE CARDS)
 with aba4:
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
     hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
@@ -143,7 +140,7 @@ with aba4:
         pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
         cor = "#28a745" if pago else "#dc3545"
         st.markdown(f"""
-            <div style="background-color:white; border-radius:10px; padding:15px; border-left:10px solid {cor}; color:black; margin-bottom:10px;">
+            <div style="background-color:white; border-radius:10px; padding:15px; border-left:10px solid {cor}; color:black; margin-bottom:10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                 <div style="font-size:18px;">👤 <b>{row['cliente']}</b> | {row['pagamento']}</div>
                 <div style="color:#555;">📍 {row['endereco']}</div>
                 <div style="font-size:20px; font-weight:bold; margin-top:5px;">R$ {parse_float(row['total']):.2f}</div>
@@ -156,8 +153,6 @@ with aba4:
             if col_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                 salvar_aba("Pedidos", df_f); st.rerun()
-        with st.expander("📋 Detalhes"):
-            for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']}")
 
 # 5. FINANCEIRO
 with aba5:
@@ -177,9 +172,9 @@ with aba5:
                     res[n]["q"] += it['qtd']; res[n]["v"] += parse_float(it.get('subtotal', 0))
             st.table(pd.DataFrame([{"Produto": k, "Qtd": v["q"], "Total": f"{v['v']:.2f}"} for k, v in res.items()]))
 
-# 6. PRODUTOS (ATIVAR/DESATIVAR)
+# 6. PRODUTOS (LAYOUT DISCRETO)
 with aba6:
-    with st.expander("➕ Adicionar"):
+    with st.expander("➕ Adicionar Produto"):
         cn = st.text_input("Nome")
         if st.button("Salvar"):
             df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": cn.upper(), "preco": 0, "tipo": "UN", "status": "Ativo"}])
