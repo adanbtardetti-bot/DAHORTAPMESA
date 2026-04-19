@@ -16,22 +16,24 @@ def aplicar_estilos():
         <style>
             .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
             .hero-title {font-size: 24px; font-weight: bold;}
-            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px;}
             .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
             .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-            .card-prod {background-color:white; border-radius:10px; padding:12px; color:black; margin-bottom:5px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);}
+            .card-style {background-color:white; border-radius:10px; padding:15px; color:black; margin-bottom:10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);}
+            .m-total {font-size: 18px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
         </style>
     """, unsafe_allow_html=True)
 
 aplicar_estilos()
 
+# Conexão e Constantes
 conn = st.connection("gsheets", type=GSheetsConnection)
 STATUS_PENDENTE = "pendente"
 STATUS_PRONTO = "pronto"
 PAGAMENTO_PAGO = "PAGO"
 PAGAMENTO_A_PAGAR = "A PAGAR"
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES DE UTILIDADE ---
 def limpar_texto(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn')
@@ -43,7 +45,7 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     end = limpar_texto(endereco).upper().center(largura)
     val_txt = f"R$ {valor:.2f}"
     status_txt = "pago" if pagamento == PAGAMENTO_PAGO else ""
-    espacos = largura - len(val_txt) - len(status_txt) - 2
+    espacos = max(1, largura - len(val_txt) - len(status_txt) - 2)
     linha_final = f"{val_txt}{' ' * espacos}{status_txt}"
     corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_final}"
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
@@ -57,10 +59,8 @@ def ler_aba(aba, ttl=30):
         df = conn.read(worksheet=aba, ttl=ttl)
         if df is None or df.empty: return pd.DataFrame()
         df.columns = [str(c).lower().strip() for c in df.columns]
-        # CORREÇÃO DO ERRO: Garante que a coluna 'status' existe
-        if aba == "Produtos":
-            if "status" not in df.columns:
-                df["status"] = "Ativo"
+        if aba == "Produtos" and "status" not in df.columns:
+            df["status"] = "Ativo"
         return df.fillna("")
     except: return pd.DataFrame()
 
@@ -68,7 +68,7 @@ def salvar_aba(aba, df):
     conn.update(worksheet=aba, data=df)
     conn.reset()
 
-# --- DADOS ---
+# --- CARREGAR DADOS ---
 df_pedidos = ler_aba("Pedidos")
 df_produtos = ler_aba("Produtos")
 
@@ -76,7 +76,7 @@ st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div>
 
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
-# 1. NOVO
+# 1. NOVO PEDIDO
 with aba1:
     if 'f_id' not in st.session_state: st.session_state.f_id = 0
     f = st.session_state.f_id
@@ -85,14 +85,14 @@ with aba1:
     n_cli = c1.text_input("Cliente", key=f"n_{f}").upper()
     e_cli = c2.text_input("Endereço", key=f"e_{f}").upper()
     pg = c3.toggle("Pago?", key=f"p_{f}")
+    o_ped = st.text_input("Observação", key=f"o_{f}").upper()
     
     carrinho, total_v = [], 0.0
-    # Filtra apenas produtos ativos para venda
-    prods_venda = df_produtos[df_produtos['status'] == "Ativo"]
-    for idx, r in prods_venda.iterrows():
+    prods_ativos = df_produtos[df_produtos['status'] == "Ativo"]
+    for idx, r in prods_ativos.iterrows():
         col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
         col_n.markdown(f"**{r['nome']}**")
-        col_p.caption(f"R$ {r['preco']}")
+        col_p.caption(f"R$ {r['preco']} / {r['tipo']}")
         qtd = col_q.number_input("Q", 0, step=1, key=f"q_{idx}_{f}", label_visibility="collapsed")
         if qtd > 0:
             p_u = parse_float(r['preco'])
@@ -100,46 +100,140 @@ with aba1:
             total_v += sub
             carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": r['tipo']})
     
+    st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
             df_at = ler_aba("Pedidos", 0)
-            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": STATUS_PENDENTE, "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR}])
+            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
             salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True))
             st.session_state.f_id += 1; st.rerun()
 
-# 2, 3, 4, 5 (Mantidos conforme seu original...)
-# ... (Código omitido para brevidade, mas deve ser mantido)
+# 2. COLHEITA
+with aba2:
+    st.header("🚜 Colheita")
+    pend = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
+    if not pend.empty:
+        res = {}
+        for _, p in pend.iterrows():
+            try:
+                for it in json.loads(p['itens']):
+                    k = f"{it['nome']} ({it['tipo']})"
+                    res[k] = res.get(k, 0) + it['qtd']
+            except: continue
+        for k, v in res.items(): st.write(f"🟢 **{v}x** {k}")
+        txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
+        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# 6. PRODUTOS (LAYOUT ESTILO HISTÓRICO)
+# 3. MONTAGEM
+with aba3:
+    st.header("⚖️ Montagem")
+    pend_m = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
+    for _, row in pend_m.iterrows():
+        with st.expander(f"👤 {row['cliente']} | {row['pagamento']}", expanded=True):
+            st.write(f"📍 {row['endereco']}")
+            if row.get('obs'): st.info(f"💡 {row['obs']}")
+            itens_m = json.loads(row['itens'])
+            total_m = 0.0
+            for i, it in enumerate(itens_m):
+                c_i, c_v = st.columns([3.5, 1.4])
+                if str(it['tipo']).upper() == "KG":
+                    it['subtotal'] = c_v.number_input("R$", 0.0, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
+                    c_i.markdown(f"⚖️ {it['nome']}")
+                else:
+                    c_i.markdown(f"✅ {it['qtd']}x {it['nome']}")
+                    c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
+                total_m += parse_float(it['subtotal'])
+            
+            st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
+            c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
+            if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
+                df_f = ler_aba("Pedidos", 0)
+                idx = df_f.index[df_f["id"].astype(str) == str(row["id"])][0]
+                df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
+                salvar_aba("Pedidos", df_f); st.rerun()
+            if c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
+                df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
+                salvar_aba("Pedidos", df_f); st.rerun()
+            b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, row['pagamento'])
+            c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
+            if c_del.button("🗑️", key=f"del_{row['id']}"):
+                df_f = ler_aba("Pedidos", 0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.rerun()
+
+# 4. HISTÓRICO
+with aba4:
+    st.header("📜 Histórico")
+    d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
+    hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
+    for _, row in hist.iterrows():
+        cor = "#28a745" if str(row['pagamento']).upper() == PAGAMENTO_PAGO else "#dc3545"
+        st.markdown(f'<div class="card-style" style="border-left:8px solid {cor};"><b>👤 {row["cliente"]}</b><br>📍 {row["endereco"]}<br><b>R$ {parse_float(row["total"]):.2f}</b> | {row["pagamento"]}</div>', unsafe_allow_html=True)
+        c_h1, c_h2 = st.columns(2)
+        b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
+        c_h1.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Reimprimir</a>', unsafe_allow_html=True)
+        if str(row['pagamento']).upper() != PAGAMENTO_PAGO:
+            if c_h2.button("💵 Pago", key=f"hp_{row['id']}", use_container_width=True):
+                df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
+                salvar_aba("Pedidos", df_f); st.rerun()
+
+# 5. FINANCEIRO
+with aba5:
+    st.header("💰 Financeiro")
+    menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
+    def gerar_tabela_fin(df_res):
+        if df_res.empty: return st.warning("Sem dados")
+        v_total = df_res['total'].apply(parse_float).sum()
+        st.metric("Faturamento", f"R$ {v_total:.2f}")
+        res = {}
+        for _, r in df_res.iterrows():
+            for it in json.loads(r['itens']):
+                n = it['nome']
+                if n not in res: res[n] = {"qtd": 0, "val": 0.0}
+                res[n]["qtd"] += it['qtd']; res[n]["val"] += parse_float(it.get('subtotal', 0))
+        st.table(pd.DataFrame([{"Produto": k, "Qtd": v["qtd"], "Total": f"{v['val']:.2f}"} for k, v in res.items()]))
+        return v_total, res
+
+    if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")])
+    elif menu == "Período":
+        c1, c2 = st.columns(2)
+        i, f = c1.date_input("De", datetime.now()-timedelta(days=7)), c2.date_input("Até", datetime.now())
+        df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
+        gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)])
+    elif menu == "Seleção Manual":
+        d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
+        df_d = df_pedidos[df_pedidos["data"] == d_g]
+        sel = [r for i, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{r['id']}")]
+        if sel:
+            v, r = gerar_tabela_fin(pd.DataFrame(sel))
+            txt = f"*RELATÓRIO GRUPO*\nTotal: R$ {v:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in r.items()])
+            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+
+# 6. PRODUTOS (LAYOUT CARDS ESTILO HISTÓRICO)
 with aba6:
     st.header("📦 Gerenciar Produtos")
-    with st.expander("➕ Adicionar Novo"):
-        cn = st.text_input("Nome").upper()
-        cp = st.number_input("Preço", 0.0)
-        ct = st.selectbox("Tipo", ["UN", "KG"])
-        if st.button("Salvar Produto"):
-            df_p = ler_aba("Produtos", 0)
-            novo_p = pd.DataFrame([{"nome": cn, "preco": cp, "tipo": ct, "status": "Ativo"}])
-            salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
+    with st.expander("➕ Adicionar Novo Produto"):
+        c_n, c_p, c_t = st.columns([3, 1, 1])
+        n_p = c_n.text_input("Nome").upper()
+        p_p = c_p.number_input("Preço", 0.0)
+        t_p = c_t.selectbox("Tipo", ["UN", "KG"])
+        if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
+            if n_p:
+                df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
+                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
 
     st.markdown("---")
     for idx, r in df_produtos.iterrows():
         ativo = r['status'] == "Ativo"
         cor = "#28a745" if ativo else "#6c757d"
-        st.markdown(f"""
-            <div class="card-prod" style="border-left:8px solid {cor};">
-                <b>{r['nome']}</b> | R$ {parse_float(r['preco']):.2f} ({r['tipo']})<br>
-                <small>Status: {r['status']}</small>
-            </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown(f'<div class="card-style" style="border-left:8px solid {cor};"><b>📦 {r["nome"]}</b><br>R$ {parse_float(r["preco"]):.2f} / {r["tipo"]} | <small>{r["status"]}</small></div>', unsafe_allow_html=True)
         with st.expander(f"Editar {r['nome']}"):
-            c1, c2, c3 = st.columns([2, 1, 1])
+            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
             en = c1.text_input("Nome", r['nome'], key=f"en_{idx}").upper()
             ep = c2.number_input("Preço", parse_float(r['preco']), key=f"ep_{idx}")
-            es = c3.toggle("Ativo", value=ativo, key=f"es_{idx}")
-            if st.button("Salvar Alterações", key=f"btn_{idx}"):
-                df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'status'] = en, ep, ("Ativo" if es else "Inativo")
+            et = c3.selectbox("Tipo", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}")
+            es = c4.toggle("Ativo", value=ativo, key=f"es_{idx}")
+            col_s, col_d = st.columns(2)
+            if col_s.button("💾 SALVAR", key=f"sv_{idx}", use_container_width=True):
+                df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if es else "Inativo")
                 salvar_aba("Produtos", df_produtos); st.rerun()
-            if st.button("🗑️ Excluir", key=f"del_{idx}"):
+            if col_d.button("🗑️ EXCLUIR", key=f"dl_{idx}", use_container_width=True):
                 salvar_aba("Produtos", df_produtos.drop(idx)); st.rerun()
