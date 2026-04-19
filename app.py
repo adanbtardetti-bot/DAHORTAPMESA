@@ -180,39 +180,79 @@ with aba4:
                 for it in json.loads(row['itens']): 
                     st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
-# --- 5. FINANCEIRO (AGRUPAMENTO POR NOME EXATO) ---
+# --- 5. FINANCEIRO (BLOCO COMPLETO COM DETALHAMENTO) ---
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
+
     def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
+        
         res = {}
         for _, r in df_res.iterrows():
-            for it in json.loads(r['itens']):
-                # AJUSTE: Unifica nomes para evitar duplicados (ex: Alface crespa vs ALFACE CRESPA)
+            # Tenta carregar os itens; se falhar ou estiver vazio, pula
+            try:
+                itens_lista = json.loads(r['itens'])
+            except:
+                continue
+                
+            for it in itens_lista:
                 n = it['nome'].strip().upper() 
-                if n not in res: res[n] = {"qtd": 0.0, "val": 0.0, "tipo": it['tipo']}
-                res[n]["qtd"] += float(it['qtd'])
+                if n not in res: 
+                    res[n] = {"qtd": 0.0, "val": 0.0, "tipo": it.get('tipo', 'UN')}
+                res[n]["qtd"] += float(it.get('qtd', 0))
                 res[n]["val"] += parse_float(it.get('subtotal', 0))
         
-        tab_dados = [{"Produto": k, "Qtd/Peso": f"{v['qtd']:.3f}" if v['tipo'] == 'KG' else int(v['qtd']), "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
-        st.table(pd.DataFrame(tab_dados).sort_values("Produto"))
-        txt = f"*{titulo_zap}*\nTotal: R$ {v_total:.2f}"
-        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+        if res:
+            df_tab = pd.DataFrame([
+                {
+                    "Produto": k, 
+                    "Qtd/Peso": f"{v['qtd']:.3f}" if v['tipo'] == 'KG' else int(v['qtd']), 
+                    "Total (R$)": f"{v['val']:.2f}"
+                } for k, v in res.items()
+            ]).sort_values("Produto")
+            
+            st.table(df_tab)
+
+            # --- CONSTRUÇÃO DA MENSAGEM DETALHADA PARA WHATSAPP ---
+            msg_detalhada = f"*{titulo_zap}*\n\n"
+            for _, row in df_tab.iterrows():
+                msg_detalhada += f"• {row['Produto']}: {row['Qtd/Peso']} -> R$ {row['Total (R$)']}\n"
+            
+            msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"
+            
+            # Link para o WhatsApp
+            texto_codificado = urllib.parse.quote(msg_detalhada)
+            st.markdown(f'<a href="https://wa.me/?text={texto_codificado}" target="_blank" class="btn-zap">ENVIAR WHATSAPP DETALHADO</a>', unsafe_allow_html=True)
+        else:
+            st.info("Nenhum dado encontrado para os filtros selecionados.")
 
     if not df_pedidos.empty:
-        if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DIA")
+        if menu == "Dia": 
+            hoje = datetime.now().strftime("%d/%m/%Y")
+            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == hoje], "RELATÓRIO DO DIA")
+            
         elif menu == "Período":
-            c1, c2 = st.columns(2); i, f = c1.date_input("De", datetime.now()-timedelta(days=7)), c2.date_input("Até", datetime.now())
+            c1, c2 = st.columns(2)
+            data_ini = c1.date_input("De", datetime.now() - timedelta(days=7))
+            data_fim = c2.date_input("Até", datetime.now())
+            
+            # Converte coluna data para comparação
             df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-            gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)], "RELATÓRIO PERÍODO")
+            df_filtrado = df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)]
+            gerar_tabela_fin(df_filtrado, f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
+            
         elif menu == "Seleção Manual":
-            d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
-            df_d = df_pedidos[df_pedidos["data"] == d_g]
+            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
+            df_d = df_pedidos[df_pedidos["data"] == data_sel]
             if not df_d.empty:
-                sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fs_{idx}")]
-                if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
+                selecionados = []
+                for idx, r in df_d.iterrows():
+                    if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}"):
+                        selecionados.append(r)
+                if selecionados:
+                    gerar_tabela_fin(pd.DataFrame(selecionados), "RELATÓRIO SELECIONADO")
 
 # --- 6. PRODUTOS ---
 with aba6:
