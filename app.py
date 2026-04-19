@@ -123,7 +123,7 @@ with aba2:
             txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# --- 3. MONTAGEM (AJUSTE TÉCNICO NO PESO) ---
+# --- 3. MONTAGEM (BLOCO COMPLETO CORRIGIDO) ---
 with aba3:
     st.header("⚖️ Montagem")
     if not df_pedidos.empty:
@@ -136,11 +136,16 @@ with aba3:
                 for i, it in enumerate(itens_m):
                     c_i, c_v = st.columns([3.5, 1.4])
                     if str(it['tipo']).upper() == "KG":
-                        val_input = c_v.number_input("R$", 0.0, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
-                        it['subtotal'] = val_input
-                        # AJUSTE: Recalcula o peso (qtd) baseado no valor informado / preço unitário
-                        if val_input > 0 and parse_float(it.get('preco', 0)) > 0:
-                            it['qtd'] = round(val_input / parse_float(it['preco']), 3)
+                        # ALTERAÇÃO AQUI: value=None para o campo vir vazio
+                        val_input = c_v.number_input("R$", value=None, key=f"m_{row['id']}_{i}", label_visibility="collapsed", placeholder="0,00")
+                        
+                        # Processa o valor apenas se algo for digitado
+                        v_digitado = parse_float(val_input) if val_input is not None else 0.0
+                        it['subtotal'] = v_digitado
+                        
+                        # Recalcula o peso (qtd) baseado no valor informado / preço unitário
+                        if v_digitado > 0 and parse_float(it.get('preco', 0)) > 0:
+                            it['qtd'] = round(v_digitado / parse_float(it['preco']), 3)
                         c_i.markdown(f"⚖️ {it['nome']}")
                     else:
                         c_i.markdown(f"✅ {it['qtd']}x {it['nome']}")
@@ -149,17 +154,30 @@ with aba3:
                 
                 st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                 c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
+                
                 if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0)
-                    idx = df_f.index[df_f["id"].astype(str) == str(row["id"])][0]
-                    df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
-                    salvar_aba("Pedidos", df_f); st.rerun()
+                    idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
+                    if idx_list:
+                        idx = idx_list[0]
+                        df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
+                        salvar_aba("Pedidos", df_f)
+                        st.rerun()
+                
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
-                    df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.rerun()
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
+                    salvar_aba("Pedidos", df_f)
+                    st.rerun()
+                
                 b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
                 c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
+                
                 if c_del.button("🗑️", key=f"del_{row['id']}"):
-                    df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.rerun()
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    df_f = df_f[df_f["id"].astype(str) != str(row["id"])]
+                    salvar_aba("Pedidos", df_f)
+                    st.rerun()
 
 # --- 4. HISTÓRICO ---
 with aba4:
