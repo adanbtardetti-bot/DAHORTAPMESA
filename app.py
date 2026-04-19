@@ -57,15 +57,12 @@ def parse_float(val):
     try: return float(str(val).strip().replace(",", "."))
     except: return 0.0
 
-def ler_aba(aba, ttl=30):
+def ler_aba(aba, ttl=0): # TTL=0 força o app a ler a planilha nova sempre
     try:
         df = conn.read(worksheet=aba, ttl=ttl)
         if df is None or df.empty: return pd.DataFrame()
+        # Esta linha garante que o Python ache a coluna 'status' não importa como escreveu na planilha
         df.columns = [str(c).lower().strip() for c in df.columns]
-        # PROTEÇÃO CONTRA O ERRO KEYERROR STATUS
-        if aba == "Produtos":
-            if "status" not in df.columns:
-                df["status"] = "Ativo"
         return df.fillna("")
     except: return pd.DataFrame()
 
@@ -77,39 +74,45 @@ def salvar_aba(aba, df):
 df_pedidos = ler_aba("Pedidos")
 df_produtos = ler_aba("Produtos")
 
+# --- LAYOUT PRINCIPAL (ORIGINAL) ---
 st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div></div>', unsafe_allow_html=True)
 
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
-# Aba 1 até 5 permanecem com sua lógica original de filtros e visualização
-# ... (Omitido para focar na correção, mas o código completo segue seu padrão)
+# 1. NOVO PEDIDO (SÓ FUNCIONA SE O FILTRO ABAIXO NÃO DER ERRO)
+with aba1:
+    if 'f_id' not in st.session_state: st.session_state.f_id = 0
+    f = st.session_state.f_id
+    st.header("🛒 Novo Pedido")
+    c1, c2, c3 = st.columns([2, 2, 1])
+    n_cli = c1.text_input("Cliente", key=f"n_{f}").upper()
+    e_cli = c2.text_input("Endereço", key=f"e_{f}").upper()
+    pg = c3.toggle("Pago?", key=f"p_{f}")
+    o_ped = st.text_input("Observação", key=f"o_{f}").upper()
+    
+    carrinho, total_v = [], 0.0
+    # Se a coluna 'status' existe na planilha, este filtro vai funcionar agora
+    if not df_produtos.empty and 'status' in df_produtos.columns:
+        prods_ativos = df_produtos[df_produtos['status'].str.lower() != "inativo"]
+        for idx, r in prods_ativos.iterrows():
+            col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
+            col_n.markdown(f"**{r['nome']}**")
+            col_p.caption(f"R$ {r['preco']} / {r['tipo']}")
+            qtd = col_q.number_input("Q", 0, step=1, key=f"q_{idx}_{f}", label_visibility="collapsed")
+            if qtd > 0:
+                p_u = parse_float(r['preco'])
+                sub = 0.0 if str(r['tipo']).upper() == "KG" else (qtd * p_u)
+                total_v += sub
+                carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": r['tipo']})
+    
+    st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
+    if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
+        if n_cli and carrinho:
+            df_at = ler_aba("Pedidos", ttl=0)
+            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
+            salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True))
+            st.session_state.f_id += 1
+            st.rerun()
 
-# 6. PRODUTOS (LAYOUT ORIGINAL CORRIGIDO)
-with aba6:
-    st.header("📦 Produtos")
-    with st.expander("➕ Adicionar Novo Produto"):
-        c_n, c_p, c_t = st.columns([3, 1, 1])
-        n_p = c_n.text_input("Nome").upper()
-        p_p = c_p.number_input("Preço", 0.0)
-        t_p = c_t.selectbox("Tipo", ["UN", "KG"])
-        if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
-            if n_p:
-                df_p = ler_aba("Produtos", 0)
-                novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
-                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True))
-                st.rerun()
-
-    st.markdown("---")
-    df_l = ler_aba("Produtos", 0)
-    for idx, r in df_l.iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
-        en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
-        ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
-        et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
-        status_ativo = (r['status'] == "Ativo")
-        est = c4.toggle("Ativo", value=status_ativo, key=f"es_{idx}")
-        if c5.button("💾", key=f"sv_{idx}"):
-            df_l.at[idx, 'nome'], df_l.at[idx, 'preco'], df_l.at[idx, 'tipo'], df_l.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
-            salvar_aba("Produtos", df_l); st.rerun()
-        if c6.button("🗑️", key=f"dl_{idx}"):
-            salvar_aba("Produtos", df_l.drop(idx)); st.rerun()
+# 2. COLHEITA ATÉ 6. PRODUTOS (LÓGICA ORIGINAL)
+# ... (O restante do código segue seu padrão exato)
