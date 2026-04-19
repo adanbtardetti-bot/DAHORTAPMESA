@@ -6,30 +6,37 @@ import urllib.parse
 import base64
 import unicodedata
 from datetime import datetime, timedelta
+from pathlib import Path
 
-# --- CONFIGURAÇÕES E ESTILOS ORIGINAIS (LAYOUT FIXO) ---
+# --- CONFIGURAÇÕES E ESTILOS ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
-# Estilos inseridos diretamente para evitar erro de carregamento de arquivo
-st.markdown("""
-    <style>
-        .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-        .hero-title {font-size: 24px; font-weight: bold;}
-        .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-        .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-        .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-        .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-    </style>
-""", unsafe_allow_html=True)
+def aplicar_estilos():
+    css_path = Path(__file__).with_name("styles.css")
+    try:
+        css = css_path.read_text(encoding="utf-8")
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except:
+        st.markdown("""
+            <style>
+                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+                .hero-title {font-size: 24px; font-weight: bold;}
+                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+            </style>
+        """, unsafe_allow_html=True)
 
-# Conexão
+aplicar_estilos()
+
 conn = st.connection("gsheets", type=GSheetsConnection)
 STATUS_PENDENTE = "pendente"
 STATUS_PRONTO = "pronto"
 PAGAMENTO_PAGO = "PAGO"
 PAGAMENTO_A_PAGAR = "A PAGAR"
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES DE UTILIDADE ---
 def limpar_texto(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn')
@@ -55,6 +62,8 @@ def ler_aba(aba, ttl=0):
         df = conn.read(worksheet=aba, ttl=ttl)
         if df is None or df.empty: return pd.DataFrame()
         df.columns = [str(c).lower().strip() for c in df.columns]
+        if aba == "Produtos" and "status" not in df.columns:
+            df["status"] = "Ativo"
         return df.fillna("")
     except: return pd.DataFrame()
 
@@ -70,7 +79,7 @@ st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div>
 
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
-# 1. NOVO
+# --- 1. NOVO PEDIDO ---
 with aba1:
     if 'f_id' not in st.session_state: st.session_state.f_id = 0
     f = st.session_state.f_id
@@ -83,7 +92,7 @@ with aba1:
     
     carrinho, total_v = [], 0.0
     if not df_produtos.empty:
-        prods_ativos = df_produtos[df_produtos['status'].str.lower() != "inativo"]
+        prods_ativos = df_produtos[df_produtos['status'].astype(str).str.lower() != "inativo"]
         for idx, r in prods_ativos.iterrows():
             col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
             col_n.markdown(f"**{r['nome']}**")
@@ -104,7 +113,7 @@ with aba1:
             st.session_state.f_id += 1
             st.rerun()
 
-# 2. COLHEITA
+# --- 2. COLHEITA ---
 with aba2:
     st.header("🚜 Colheita")
     if not df_pedidos.empty:
@@ -121,7 +130,7 @@ with aba2:
             txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# 3. MONTAGEM
+# --- 3. MONTAGEM ---
 with aba3:
     st.header("⚖️ Montagem")
     if not df_pedidos.empty:
@@ -162,7 +171,7 @@ with aba3:
                     df_f = df_f[df_f["id"].astype(str) != str(row["id"])].reset_index(drop=True)
                     salvar_aba("Pedidos", df_f); st.rerun()
 
-# 4. HISTÓRICO
+# --- 4. HISTÓRICO ---
 with aba4:
     st.header("📜 Histórico")
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
@@ -181,15 +190,16 @@ with aba4:
                     df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                     salvar_aba("Pedidos", df_f); st.rerun()
             with st.expander("📋 Detalhes"):
+                # MOSTRA QTD, NOME E VALOR DO ITEM
                 for it in json.loads(row['itens']): 
                     st.write(f"• {it['qtd']}x {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
-# 5. FINANCEIRO
+# --- 5. FINANCEIRO ---
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
-    def gerar_tabela_fin(df_res, tit="RELATÓRIO"):
-        if df_res.empty: return st.warning("Nenhum dado.")
+    def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
+        if df_res.empty: return st.warning("Nenhum dado."), None
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
         res = {}
@@ -201,22 +211,27 @@ with aba5:
                 res[n]["val"] += parse_float(it.get('subtotal', 0))
         tab_dados = [{"Produto": k, "Qtd": v["qtd"], "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
         st.table(pd.DataFrame(tab_dados).sort_values("Total (R$)", ascending=False))
-        txt = f"*{tit}*\nTotal: R$ {v_total:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
+        
+        # BOTÃO COMPARTILHAR UNIFICADO
+        txt = f"*{titulo_zap}*\nTotal: R$ {v_total:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
         st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+        return v_total, res
 
-    if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DIA")
+    if menu == "Dia": 
+        gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
     elif menu == "Período":
         c1, c2 = st.columns(2)
         i, f = c1.date_input("De", datetime.now()-timedelta(days=7)), c2.date_input("Até", datetime.now())
         df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-        gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)], "RELATÓRIO PERÍODO")
+        gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)], f"RELATÓRIO DE {i.strftime('%d/%m')} A {f.strftime('%d/%m')}")
     elif menu == "Seleção Manual":
         d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
         df_d = df_pedidos[df_pedidos["data"] == d_g]
         sel = [r for i, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{r['id']}")]
-        if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
+        if sel:
+            gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO SELECIONADO")
 
-# 6. PRODUTOS
+# --- 6. PRODUTOS ---
 with aba6:
     st.header("📦 Produtos")
     with st.expander("➕ Adicionar Novo Produto"):
@@ -237,7 +252,8 @@ with aba6:
             en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
             ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
             et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
-            est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
+            status_ativo = (str(r['status']).lower() == "ativo")
+            est = c4.toggle("Ativo", value=status_ativo, key=f"es_{idx}")
             if c5.button("💾", key=f"sv_{idx}"):
                 df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
                 salvar_aba("Produtos", df_produtos); st.rerun()
