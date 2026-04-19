@@ -30,7 +30,9 @@ def aplicar_estilos():
 
 aplicar_estilos()
 
+# --- CONEXÃO COM CACHE ZERO PARA FORÇAR ATUALIZAÇÃO ---
 conn = st.connection("gsheets", type=GSheetsConnection)
+
 STATUS_PENDENTE = "pendente"
 STATUS_PRONTO = "pronto"
 PAGAMENTO_PAGO = "PAGO"
@@ -59,9 +61,9 @@ def parse_float(val):
 
 def ler_aba(aba, ttl=0):
     try:
+        # Força a leitura sem cache para garantir que os dados "voltem"
         df = conn.read(worksheet=aba, ttl=ttl)
         if df is None or df.empty:
-            # Proteção contra erro de coluna inexistente se a planilha estiver vazia
             cols = ["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"]
             if aba == "Produtos": cols = ["id", "nome", "preco", "tipo", "status"]
             return pd.DataFrame(columns=cols)
@@ -70,7 +72,8 @@ def ler_aba(aba, ttl=0):
         if aba == "Produtos" and "status" not in df.columns:
             df["status"] = "Ativo"
         return df.fillna("")
-    except:
+    except Exception as e:
+        st.error(f"Erro de conexão com a planilha: {e}")
         return pd.DataFrame()
 
 def salvar_aba(aba, df):
@@ -135,17 +138,20 @@ with aba2:
             for k, v in res.items(): st.write(f"🟢 **{v}x** {k}")
             txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+        else:
+            st.info("Não há pedidos pendentes para colheita.")
 
 # --- 3. MONTAGEM ---
 with aba3:
     st.header("⚖️ Montagem")
     if not df_pedidos.empty and "status" in df_pedidos.columns:
         pend_m = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
+        if pend_m.empty:
+            st.info("Todos os pedidos já foram montados!")
         for _, row in pend_m.iterrows():
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
                 st.write(f"📍 {row['endereco']}")
-                if row.get('obs'): st.info(f"💡 {row['obs']}")
                 itens_m = json.loads(row['itens'])
                 total_m = 0.0
                 for i, it in enumerate(itens_m):
@@ -180,9 +186,12 @@ with aba3:
 # --- 4. HISTÓRICO ---
 with aba4:
     st.header("📜 Histórico")
+    # Se sumiu tudo, verifique se a data selecionada abaixo é a correta
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
     if not df_pedidos.empty and "status" in df_pedidos.columns:
         hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
+        if hist.empty:
+            st.warning(f"Nenhum pedido finalizado encontrado para o dia {d_sel}.")
         for _, row in hist.iterrows():
             pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
             cor = "#28a745" if pago else "#dc3545"
@@ -196,7 +205,6 @@ with aba4:
                     df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                     salvar_aba("Pedidos", df_f); st.rerun()
             with st.expander("📋 Detalhes"):
-                # MOSTRA VALOR POR ITEM
                 for it in json.loads(row['itens']): 
                     st.write(f"• {it['qtd']}x {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
@@ -205,7 +213,7 @@ with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
     def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
-        if df_res.empty: return st.warning("Nenhum dado.")
+        if df_res.empty: return st.warning("Sem dados para este período.")
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
         res = {}
@@ -219,12 +227,10 @@ with aba5:
             except: continue
         tab_dados = [{"Produto": k, "Qtd": v["qtd"], "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
         st.table(pd.DataFrame(tab_dados).sort_values("Total (R$)", ascending=False))
-        
-        # BOTÃO WHATSAPP EM TODOS OS FILTROS
         txt = f"*{titulo_zap}*\nTotal: R$ {v_total:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
         st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-    if not df_pedidos.empty and "data" in df_pedidos.columns:
+    if not df_pedidos.empty:
         if menu == "Dia": 
             gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DIA")
         elif menu == "Período":
@@ -236,14 +242,17 @@ with aba5:
             d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
             df_d = df_pedidos[df_pedidos["data"] == d_g]
             if not df_d.empty:
-                sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{idx}")]
+                sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fs_{idx}")]
                 if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
     else:
-        st.info("Nenhum dado financeiro disponível.")
+        st.info("Nenhum histórico disponível para o financeiro.")
 
 # --- 6. PRODUTOS ---
 with aba6:
     st.header("📦 Produtos")
+    if df_produtos.empty:
+        st.warning("A lista de produtos está vazia. Adicione um produto abaixo.")
+    
     with st.expander("➕ Adicionar Novo Produto"):
         c_n, c_p, c_t = st.columns([3, 1, 1])
         n_p = c_n.text_input("Nome").upper()
