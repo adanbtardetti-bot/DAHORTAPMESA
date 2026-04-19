@@ -6,30 +6,23 @@ import urllib.parse
 import base64
 import unicodedata
 from datetime import datetime, timedelta
-from pathlib import Path
 
-# --- CONFIGURAÇÕES E ESTILOS ORIGINAIS ---
+# --- CONFIGURAÇÕES E ESTILOS ORIGINAIS (LAYOUT FIXO) ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
-def aplicar_estilos():
-    css_path = Path(__file__).with_name("styles.css")
-    try:
-        css = css_path.read_text(encoding="utf-8")
-        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    except:
-        st.markdown("""
-            <style>
-                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-                .hero-title {font-size: 24px; font-weight: bold;}
-                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-            </style>
-        """, unsafe_allow_html=True)
+# Estilos inseridos diretamente para evitar erro de carregamento de arquivo
+st.markdown("""
+    <style>
+        .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+        .hero-title {font-size: 24px; font-weight: bold;}
+        .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+        .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+        .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+        .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+    </style>
+""", unsafe_allow_html=True)
 
-aplicar_estilos()
-
+# Conexão
 conn = st.connection("gsheets", type=GSheetsConnection)
 STATUS_PENDENTE = "pendente"
 STATUS_PRONTO = "pronto"
@@ -169,7 +162,7 @@ with aba3:
                     df_f = df_f[df_f["id"].astype(str) != str(row["id"])].reset_index(drop=True)
                     salvar_aba("Pedidos", df_f); st.rerun()
 
-# 4. HISTÓRICO (Com melhoria nos Detalhes)
+# 4. HISTÓRICO
 with aba4:
     st.header("📜 Histórico")
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
@@ -189,10 +182,9 @@ with aba4:
                     salvar_aba("Pedidos", df_f); st.rerun()
             with st.expander("📋 Detalhes"):
                 for it in json.loads(row['itens']): 
-                    # Mostra valor do item conforme solicitado
                     st.write(f"• {it['qtd']}x {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
-# 5. FINANCEIRO (Com compartilhamento em todos)
+# 5. FINANCEIRO
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
@@ -209,7 +201,6 @@ with aba5:
                 res[n]["val"] += parse_float(it.get('subtotal', 0))
         tab_dados = [{"Produto": k, "Qtd": v["qtd"], "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
         st.table(pd.DataFrame(tab_dados).sort_values("Total (R$)", ascending=False))
-        # Botão de compartilhamento para todo o financeiro
         txt = f"*{tit}*\nTotal: R$ {v_total:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
         st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
