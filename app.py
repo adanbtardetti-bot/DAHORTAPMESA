@@ -6,18 +6,15 @@ import urllib.parse
 import base64
 import unicodedata
 from datetime import datetime, timedelta
-from pathlib import Path
 
 # --- CONFIGURAÇÕES ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
-# CSS REFAITO PARA O SEU LAYOUT ORIGINAL
+# SEU LAYOUT ORIGINAL (CSS RESTAURADO)
 st.markdown("""
     <style>
         .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-        .stTabs [data-baseweb="tab-list"] {gap: 8px;}
-        .stTabs [data-baseweb="tab"] {background-color: #1a2e1f; border-radius: 5px; color: white; padding: 8px 15px;}
-        .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px;}
+        .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
         .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
     </style>
 """, unsafe_allow_html=True)
@@ -120,26 +117,31 @@ with aba3:
                 c_i, c_v = st.columns([3.5, 1.4])
                 if str(it['tipo']).upper() == "KG":
                     it['subtotal'] = c_v.number_input(f"R$ {it['nome']}", 0.0, key=f"m_{row['id']}_{i}")
+                else:
+                    c_v.write(f"R$ {parse_float(it['subtotal']):.2f}")
                 total_m += parse_float(it['subtotal'])
                 c_i.write(f"✅ {it['qtd']}x {it['nome']}")
             st.write(f"**TOTAL: R$ {total_m:.2f}**")
-            c_ok, c_pg, c_del = st.columns([1, 1, 1])
+            c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
             if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
                 df_f = ler_aba("Pedidos", 0); idx = df_f.index[df_f["id"].astype(str) == str(row["id"])][0]
                 df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
                 salvar_aba("Pedidos", df_f); st.rerun()
-            if c_del.button("🗑️ EXCLUIR", key=f"del_{row['id']}"):
+            if c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
+                df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
+                salvar_aba("Pedidos", df_f); st.rerun()
+            b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, row['pagamento'])
+            c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
+            if c_del.button("🗑️", key=f"del_{row['id']}"):
                 df_f = ler_aba("Pedidos", 0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.rerun()
 
-# 4. HISTÓRICO (LAYOUT ORIGINAL RESTAURADO)
+# 4. HISTÓRICO (LAYOUT ORIGINAL)
 with aba4:
-    st.subheader("📜 Histórico")
     d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
     hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
     for _, row in hist.iterrows():
         pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
         cor = "#28a745" if pago else "#dc3545"
-        # O Card Branco com a borda lateral
         st.markdown(f"""
             <div style="background-color:white; border-radius:10px; padding:15px; border-left:10px solid {cor}; color:black; margin-bottom:10px;">
                 <div style="font-size:18px;">👤 <b>{row['cliente']}</b> | {row['pagamento']}</div>
@@ -157,19 +159,16 @@ with aba4:
         with st.expander("📋 Detalhes"):
             for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']}")
 
-# 5. FINANCEIRO (SELEÇÃO MANUAL POR DATA)
+# 5. FINANCEIRO
 with aba5:
-    st.subheader("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
     if menu == "Seleção Manual":
-        d_g = st.date_input("Data dos pedidos:", datetime.now()).strftime("%d/%m/%Y")
+        d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
         df_d = df_pedidos[df_pedidos["data"] == d_g]
-        sel = []
-        for i, r in df_d.iterrows():
-            if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{r['id']}"): sel.append(r)
+        sel = [r for i, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{r['id']}")]
         if sel:
             df_sel = pd.DataFrame(sel)
-            st.metric("Total Selecionado", f"R$ {df_sel['total'].apply(parse_float).sum():.2f}")
+            st.metric("Total", f"R$ {df_sel['total'].apply(parse_float).sum():.2f}")
             res = {}
             for _, r in df_sel.iterrows():
                 for it in json.loads(r['itens']):
@@ -180,17 +179,14 @@ with aba5:
 
 # 6. PRODUTOS (ATIVAR/DESATIVAR)
 with aba6:
-    st.subheader("📦 Produtos")
     with st.expander("➕ Adicionar"):
-        cn, cp, ct = st.columns([3, 1, 1])
-        n_p = cn.text_input("Nome")
+        cn = st.text_input("Nome")
         if st.button("Salvar"):
-            df_p = ler_aba("Produtos", 0)
-            salvar_aba("Produtos", pd.concat([df_p, pd.DataFrame([{"nome": n_p.upper(), "preco": cp.number_input("Preço", 0.0), "tipo": ct.selectbox("Tipo", ["UN", "KG"]), "status": "Ativo"}])], ignore_index=True))
-            st.rerun()
+            df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": cn.upper(), "preco": 0, "tipo": "UN", "status": "Ativo"}])
+            salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
     df_l = ler_aba("Produtos", 0)
     for idx, r in df_l.iterrows():
-        c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+        c1, c2, c3, c4 = st.columns([3, 1, 0.5, 0.5])
         c1.write(f"**{r['nome']}**")
         est = c2.toggle("Ativo", value=(r['status'] == "Ativo"), key=f"s_{idx}")
         if c3.button("💾", key=f"sv_{idx}"):
