@@ -354,47 +354,22 @@ def render_tab_montagem(tab):
 def render_tab_historico(tab):
     with tab:
         st.header("📜 Histórico")
-        
+        st.caption("Pedidos finalizados com valor total e status de pagamento.")
         if df_pedidos.empty:
-            st.info("Banco de dados vazio.")
+            st.info("Sem historico para exibir.")
             return
 
         finalizados = filtrar_status(df_pedidos, STATUS_PRONTO)
-        
         if finalizados.empty:
-            st.warning("Nenhum pedido finalizado.")
+            st.info("Nenhum pedido finalizado ainda.")
             return
 
-        # Ordenar do mais novo para o antigo
-        finalizados = finalizados.sort_values(by="id", ascending=False)
+        cols_disponiveis = [c for c in ["data", "cliente", "total", "pagamento"] if c in finalizados.columns]
+        st.dataframe(finalizados[cols_disponiveis] if cols_disponiveis else finalizados)
 
-        for _, row in finalizados.iterrows():
-            pago = str(row.get("pagamento", "")).strip().upper() == PAGAMENTO_PAGO
-            cor = "#28a745" if pago else "#dc3545"
-            txt_pgto = "PAGO" if pago else "A PAGAR"
-            valor = parse_float(row.get("total", 0))
-            cliente = row.get("cliente", "S/N")
-            data_ped = row.get("data", "S/D")
 
-            # Montando o card sem quebras de linha complexas
-            card = f"""<div style="background-color:white; border-radius:10px; padding:15px; margin-bottom:10px; border-left:6px solid {cor}; color:black;">
-                <div style="display:flex; justify-content:space-between;">
-                    <b>👤 {cliente}</b>
-                    <span style="background:{cor}; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">{txt_pgto}</span>
-                </div>
-                <div style="font-size:14px; color:gray; margin:5px 0;">📅 {data_ped}</div>
-                <div style="font-size:18px; font-weight:bold; color:#2e7d32;">R$ {valor:.2f}</div>
-            </div>"""
-            
-            st.markdown(card, unsafe_allow_html=True)
-
-            with st.expander("Detalhes"):
-                try:
-                    itens = json.loads(row.get("itens", "[]"))
-                    for it in itens:
-                        st.write(f"- {it['qtd']}x {it['nome']}")
-                except:
-                    st.write("Erro ao ler itens.")    with tab:
+def render_tab_financeiro(tab):
+    with tab:
         st.header("💰 Financeiro")
         st.caption("Acompanhe o que ja foi recebido e o que ainda falta receber.")
         if df_pedidos.empty:
