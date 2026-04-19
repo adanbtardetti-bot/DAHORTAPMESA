@@ -214,33 +214,52 @@ with aba5:
                 sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fs_{idx}")]
                 if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
 
-# --- 6. PRODUTOS (ORGANIZADO IGUAL À MONTAGEM) ---
+# --- 6. PRODUTOS (IGUAL AO LAYOUT DA MONTAGEM) ---
 with aba6:
     st.header("📦 Produtos")
+    
     with st.expander("➕ Adicionar Novo Produto"):
         c_n, c_p, c_t = st.columns([3, 1, 1])
-        n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
+        n_p = c_n.text_input("Nome", key="new_n").upper()
+        p_p = c_p.number_input("Preço", 0.0, key="new_p")
+        t_p = c_t.selectbox("Tipo", ["UN", "KG"], key="new_t")
         if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
             if n_p:
-                df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
-                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
-    
+                df_p = ler_aba("Produtos", 0)
+                novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
+                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True))
+                st.rerun()
+
+    st.markdown("---")
+
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
-            # Criamos um container para cada produto para manter os botões juntos
-            with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([2.5, 1, 1, 1])
-                en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
+            # Container para agrupar cada produto, igual aos cards da montagem
+            with st.container():
+                # Campos de edição
+                c1, c2, c3 = st.columns([2.5, 1, 1])
+                en = c1.text_input("Nome", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
                 ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
                 et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
-                est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
                 
-                # Linha de botões horizontal igual à montagem
-                b_save, b_del, _ = st.columns([0.2, 0.2, 0.6])
+                # Switch de Ativo e Botões na mesma linha horizontal
+                # Usamos colunas bem pequenas para os ícones ficarem juntos
+                c_status, b_save, b_del, _ = st.columns([1, 0.5, 0.5, 2])
                 
-                if b_save.button("💾", key=f"sv_{idx}", help="Salvar alterações"):
-                    df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
-                    salvar_aba("Produtos", df_produtos); st.rerun()
+                est = c_status.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
                 
-                if b_del.button("🗑️", key=f"dl_{idx}", help="Excluir produto"):
-                    salvar_aba("Produtos", df_produtos.drop(idx)); st.rerun()
+                if b_save.button("💾", key=f"sv_{idx}"):
+                    df_produtos.at[idx, 'nome'] = en
+                    df_produtos.at[idx, 'preco'] = ep
+                    df_produtos.at[idx, 'tipo'] = et
+                    df_produtos.at[idx, 'status'] = "Ativo" if est else "Inativo"
+                    salvar_aba("Produtos", df_produtos)
+                    st.rerun()
+                
+                if b_del.button("🗑️", key=f"dl_{idx}"):
+                    df_f = ler_aba("Produtos", 0)
+                    df_f = df_f.drop(idx)
+                    salvar_aba("Produtos", df_f)
+                    st.rerun()
+                
+                st.markdown("<hr style='margin:10px 0; opacity:0.2'>", unsafe_allow_html=True)
