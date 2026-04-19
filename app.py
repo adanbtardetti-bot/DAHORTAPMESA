@@ -247,21 +247,61 @@ with aba5:
             txt = f"*RELATÓRIO GRUPO ({d_g})*\nTotal: R$ {v_g:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in r_g.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# 6. PRODUTOS (LAYOUT COMPACTO)
+# 6. PRODUTOS (LAYOUT ESTILO HISTÓRICO)
 with aba6:
-    st.header("📦 Produtos")
+    st.header("📦 Gerenciar Produtos")
     
-    # Formulário de adição mais discreto
-    with st.expander("➕ Novo Produto", expanded=False):
+    # Formulário de adição no topo
+    with st.expander("➕ Adicionar Novo Produto", expanded=False):
         c_n, c_p, c_t = st.columns([3, 1, 1])
-        n_p = c_n.text_input("Nome").upper()
-        p_p = c_p.number_input("Preço", 0.0, step=0.5)
-        t_p = c_t.selectbox("Tipo", ["UN", "KG"])
+        n_p = c_n.text_input("Nome do Produto").upper()
+        p_p = c_p.number_input("Preço Base", 0.0, step=0.5)
+        t_p = c_t.selectbox("Unidade", ["UN", "KG"])
         if st.button("SALVAR NOVO", type="primary", use_container_width=True):
             if n_p:
                 df_p = ler_aba("Produtos", 0)
                 novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
                 salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True))
+                st.rerun()
+
+    st.markdown("---")
+    
+    df_l = ler_aba("Produtos", 0)
+    
+    for idx, r in df_l.iterrows():
+        # Lógica de cores igual ao histórico
+        status_ativo = (r['status'] == "Ativo")
+        cor_status = "#28a745" if status_ativo else "#6c757d" # Verde se ativo, Cinza se inativo
+        
+        # CARD ESTILO HISTÓRICO
+        st.markdown(f"""
+            <div style="background-color:white; border-radius:10px; padding:12px; border-left:8px solid {cor_status}; color:black; margin-bottom:5px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                <div style="font-size:16px;"><b>📦 {r['nome']}</b></div>
+                <div style="color:#555; font-size:14px;">Preço: R$ {parse_float(r['preco']):.2f} / {r['tipo']}</div>
+                <div style="font-size:12px; font-weight:bold; color:{cor_status};">{r['status'].upper()}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # AÇÕES DO CARD (Edição rápida e exclusão)
+        with st.expander(f"Editar {r['nome']}"):
+            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+            
+            new_n = c1.text_input("Nome", r['nome'], key=f"en_{idx}").upper()
+            new_p = c2.number_input("Preço", parse_float(r['preco']), key=f"ep_{idx}")
+            new_t = c3.selectbox("Tipo", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}")
+            new_s = c4.toggle("Ativo", value=status_ativo, key=f"es_{idx}")
+            
+            col_save, col_del = st.columns(2)
+            if col_save.button("💾 SALVAR ALTERAÇÃO", key=f"sv_{idx}", use_container_width=True):
+                df_l.at[idx, 'nome'] = new_n
+                df_l.at[idx, 'preco'] = new_p
+                df_l.at[idx, 'tipo'] = new_t
+                df_l.at[idx, 'status'] = "Ativo" if new_s else "Inativo"
+                salvar_aba("Produtos", df_l)
+                st.rerun()
+                
+            if col_del.button("🗑️ EXCLUIR", key=f"dl_{idx}", use_container_width=True):
+                salvar_aba("Produtos", df_l.drop(idx))
                 st.rerun()
 
     st.markdown("---")
