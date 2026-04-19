@@ -354,85 +354,70 @@ def render_tab_montagem(tab):
 def render_tab_historico(tab):
     with tab:
         st.header("📜 Histórico de Pedidos")
-        st.caption("Visualize aqui todos os pedidos que já foram finalizados (status 'Pronto').")
+        st.caption("Visualize aqui todos os pedidos que já foram finalizados.")
         
         if df_pedidos.empty:
             st.info("O banco de dados de pedidos está vazio.")
             return
 
-        # Filtramos apenas os pedidos com status "Pronto"
         finalizados = filtrar_status(df_pedidos, STATUS_PRONTO)
         
         if finalizados.empty:
             st.warning("Ainda não existem pedidos finalizados no histórico.")
             return
 
-        # Ordenar pelos mais recentes (ID maior costuma ser o mais novo)
         finalizados = finalizados.sort_values(by="id", ascending=False)
 
         for _, row in finalizados.iterrows():
-            # Lógica para cor e status do pagamento
             pago = str(row.get("pagamento", "")).strip().upper() == PAGAMENTO_PAGO
             cor_status = "#28a745" if pago else "#dc3545"
             label_pgto = "PAGO" if pago else "A PAGAR"
-            
-            # Formatação do valor total
             valor_total = parse_float(row.get("total", 0))
+            
+            # CRIANDO O HTML EM UMA VARIÁVEL PARA GARANTIR LIMPEZA
+            html_card = f"""
+            <div style="
+                background-color: white;
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 15px;
+                border-left: 6px solid {cor_status};
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                color: #1e1e1e !important;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 1.2em; font-weight: bold;">👤 {row.get('cliente', 'Não informado')}</span>
+                    <span style="background-color: {cor_status}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold;">
+                        {label_pgto}
+                    </span>
+                </div>
+                
+                <div style="color: #555; font-size: 0.95em; line-height: 1.4;">
+                    <p style="margin: 0;">📅 <b>Data:</b> {row.get('data', 'S/D')}</p>
+                    <p style="margin: 0;">📍 <b>Endereço:</b> {row.get('endereco', 'Não informado')}</p>
+                </div>
 
-            # Renderização do Card de Histórico
-            with st.container():
-                st.markdown(f"""
-                <div style="
-                    background-color: white;
-                    border-radius: 12px;
-                    padding: 20px;
-                    margin-bottom: 15px;
-                    border-left: 6px solid {cor_status};
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                ">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 1.2em; font-weight: bold; color: #1e1e1e;">👤 {row.get('cliente', 'Não informado')}</span>
-                        <span style="
-                            background-color: {cor_status};
-                            color: white;
-                            padding: 4px 12px;
-                            border-radius: 20px;
-                            font-size: 0.85em;
-                            font-weight: bold;
-                        ">{label_pgto}</span>
-                    </div>
-                    
-                    <div style="margin-top: 10px; color: #555; font-size: 0.95em;">
-                        <p style="margin: 2px 0;">📅 <b>Data:</b> {row.get('data', 'S/D')}</p>
-                        <p style="margin: 2px 0;">📍 <b>Endereço:</b> {row.get('endereco', 'Não informado')}</p>
-                    </div>
-
-                    <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: flex-end;">
-                        <div>
-                            <span style="color: #888; font-size: 0.8em; display: block;">VALOR TOTAL</span>
-                            <span style="font-size: 1.5em; font-weight: 800; color: #2e7d32;">R$ {valor_total:.2f}</span>
-                        </div>
+                <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px; display: flex; justify-content: space-between; align-items: flex-end;">
+                    <div>
+                        <span style="color: #888; font-size: 0.8em; display: block;">VALOR TOTAL</span>
+                        <span style="font-size: 1.5em; font-weight: 800; color: #2e7d32;">R$ {valor_total:.2f}</span>
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+            </div>
+            """
+            
+            # O comando st.markdown precisa estar fora de qualquer outra indentação de texto
+            st.markdown(html_card, unsafe_allow_html=True)
 
-                # Detalhes dos itens dentro de um expander para não poluir a tela
-                with st.expander(f"📋 Ver itens do pedido"):
-                    try:
-                        itens = json.loads(row.get("itens", "[]"))
-                        if not itens:
-                            st.write("Nenhum item detalhado.")
-                        for it in itens:
-                            st.write(f"• {it['qtd']}x **{it['nome']}** — R$ {parse_float(it['subtotal']):.2f}")
-                        
-                        if row.get('obs'):
-                            st.info(f"**Obs:** {row['obs']}")
-                    except:
-                        st.error("Erro ao carregar detalhes dos itens.")
-                
-                st.write("") # Espaçamento extra entre cards
-
-
+            with st.expander(f"📋 Ver itens do pedido"):
+                try:
+                    itens = json.loads(row.get("itens", "[]"))
+                    for it in itens:
+                        st.write(f"• {it['qtd']}x **{it['nome']}** — R$ {parse_float(it['subtotal']):.2f}")
+                    if row.get('obs'):
+                        st.info(f"**Obs:** {row['obs']}")
+                except:
+                    st.error("Erro ao carregar detalhes.")
 def render_tab_financeiro(tab):
     with tab:
         st.header("💰 Financeiro")
