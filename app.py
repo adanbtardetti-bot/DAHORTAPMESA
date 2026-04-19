@@ -26,11 +26,36 @@ STATUS_PRONTO = "pronto"
 PAGAMENTO_PAGO = "PAGO"
 PAGAMENTO_A_PAGAR = "A PAGAR"
 
-# --- FUNÇÃO PARA LIMPAR ACENTOS (EVITA ERRO NA IMPRESSORA) ---
+# --- FUNÇÃO PARA LIMPAR ACENTOS E FORMATAR ETIQUETA ---
 def limpar_texto(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', str(texto))
                    if unicodedata.category(c) != 'Mn')
+
+def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
+    largura = 32
+    
+    # Cabeçalho em Negrito (Usando caracteres matemáticos para simular negrito em texto puro)
+    # Nota: Algumas impressoras aceitam tags <b>, mas o caractere especial é mais universal.
+    marca = "@dahortapmesa".center(largura)
+    
+    cli = limpar_texto(cliente).upper().center(largura)
+    end = limpar_texto(endereco).upper().center(largura)
+    
+    # Valor e Pago lado a lado
+    val_txt = f"R$ {valor:.2f}"
+    status_txt = "pago" if pagamento == PAGAMENTO_PAGO else ""
+    
+    # Se estiver pago, coloca espaços entre o valor e a palavra 'pago'
+    if status_txt:
+        espaços = largura - len(val_txt) - len(status_txt) - 4
+        linha_final = f"{val_txt}{' ' * espaços}{status_txt}".center(largura)
+    else:
+        linha_final = val_txt.center(largura)
+    
+    # Montagem com o espaço solicitado entre nome e endereço
+    corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_final}"
+    return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 # ── Data Access Layer ────────────────────────────────────────
 DEFAULT_READ_TTL = 30 
@@ -41,8 +66,7 @@ def ler_aba(aba: str, ttl: int = DEFAULT_READ_TTL) -> pd.DataFrame:
     except Exception as e:
         st.error(f"Erro ao ler aba '{aba}': {e}")
         return pd.DataFrame()
-    if df is None or df.empty:
-        return pd.DataFrame()
+    if df is None or df.empty: return pd.DataFrame()
     df = df.dropna(how="all")
     df.columns = [str(c).lower().strip() for c in df.columns]
     mask = df.astype(str).apply(lambda r: r.str.strip().eq("").all(), axis=1)
@@ -58,20 +82,16 @@ def salvar_aba(aba: str, df: pd.DataFrame):
         st.error(f"Erro ao salvar aba '{aba}': {e}")
 
 def filtrar_status(df: pd.DataFrame, status: str) -> pd.DataFrame:
-    if df.empty or "status" not in df.columns:
-        return pd.DataFrame()
+    if df.empty or "status" not in df.columns: return pd.DataFrame()
     s = df["status"].astype(str).str.strip().str.lower()
     return df[s == status]
 
 def parse_float(val, default: float = 0.0) -> float:
-    try:
-        return float(str(val).strip().replace(",", "."))
-    except (ValueError, TypeError):
-        return default
+    try: return float(str(val).strip().replace(",", "."))
+    except: return default
 
 def resumo_kpis(df: pd.DataFrame) -> dict:
-    if df.empty:
-        return {"total": 0, "pendentes": 0, "prontos": 0, "recebido": 0.0, "areceber": 0.0}
+    if df.empty: return {"total": 0, "pendentes": 0, "prontos": 0, "recebido": 0.0, "areceber": 0.0}
     status = df.get("status", pd.Series(dtype=str)).astype(str).str.strip().str.lower()
     pagamento = df.get("pagamento", pd.Series(dtype=str)).astype(str).str.strip()
     totais = df.get("total", pd.Series(dtype=float)).apply(parse_float)
@@ -87,11 +107,9 @@ def calcular_totais_financeiros(df: pd.DataFrame):
     if df.empty: return 0.0, 0.0
     pagamento = df.get("pagamento", pd.Series(dtype=str)).astype(str).str.strip()
     totais = df.get("total", pd.Series(dtype=float)).apply(parse_float)
-    recebido = float(totais[pagamento == PAGAMENTO_PAGO].sum())
-    pendente = float(totais[pagamento == PAGAMENTO_A_PAGAR].sum())
-    return recebido, pendente
+    return float(totais[pagamento == PAGAMENTO_PAGO].sum()), float(totais[pagamento == PAGAMENTO_A_PAGAR].sum())
 
-# ── Load sheets ──────────────────────────────────────────────
+# ── Load data ──────────────────────────────────────────────
 df_pedidos = ler_aba("Pedidos")
 df_produtos = ler_aba("Produtos")
 
@@ -103,9 +121,9 @@ st.markdown(f"""<div class="kpi-strip">
     <div class="kpi-card"><div class="kpi-title">Pedidos</div><div class="kpi-value">{kpis['total']}</div></div>
     <div class="kpi-card"><div class="kpi-title">Pendentes</div><div class="kpi-value">{kpis['pendentes']}</div></div>
     <div class="kpi-card"><div class="kpi-title">Prontos</div><div class="kpi-value">{kpis['prontos']}</div></div>
-    <div class="kpi-card"><div class="kpi-title">Recebido</div><div class="kpi-value">R$ {kpis['recebido']:.2f}</div></div>
-    <div class="kpi-card"><div class="kpi-title">A receber</div><div class="kpi-value">R$ {kpis['areceber']:.2f}</div></div>
 </div>""", unsafe_allow_html=True)
+
+# ── ABAS ───────────────────────────────────────────────────
 
 def render_tab_novo_pedido(tab):
     with tab:
@@ -117,27 +135,25 @@ def render_tab_novo_pedido(tab):
         e_cli = c2.text_input("Endereço", key=f"e_{f}").upper()
         pg = c3.toggle("Pago?", key=f"p_{f}")
         o_ped = st.text_input("Observação", key=f"o_{f}")
+        
         carrinho, total_v = [], 0.0
-        if not df_produtos.empty:
-            for row_idx, r in df_produtos.iterrows():
-                nome = str(r.get("nome", "")).strip()
-                if not nome: continue
-                p_u, tipo = parse_float(r.get("preco", 0)), str(r.get("tipo", "UN")).strip().upper()
-                prod_id = str(r.get("id", "")).strip() or str(row_idx)
-                col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
-                col_n.markdown(f"**{nome}**")
-                col_p.caption(f"R$ {p_u:.2f} / {tipo}")
-                qtd = col_q.number_input("Q", 0, step=1, key=f"q_{prod_id}_{f}", label_visibility="collapsed")
-                if qtd > 0:
-                    sub = 0.0 if tipo == "KG" else (qtd * p_u)
-                    total_v += sub
-                    carrinho.append({"nome": nome, "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": tipo})
+        for row_idx, r in df_produtos.iterrows():
+            col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
+            col_n.markdown(f"**{r['nome']}**")
+            col_p.caption(f"R$ {r['preco']} / {r['tipo']}")
+            qtd = col_q.number_input("Q", 0, step=1, key=f"q_{row_idx}_{f}", label_visibility="collapsed")
+            if qtd > 0:
+                p_u = parse_float(r['preco'])
+                sub = 0.0 if str(r['tipo']).upper() == "KG" else (qtd * p_u)
+                total_v += sub
+                carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": r['tipo']})
+        
         st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
         if st.button("💾 FINALIZAR PEDIDO", type="primary", key=f"btn_s_{f}"):
             if n_cli and carrinho:
-                df_atual = ler_aba("Pedidos", ttl=0)
+                df_at = ler_aba("Pedidos", ttl=0)
                 novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "Pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
-                salvar_aba("Pedidos", pd.concat([df_atual, novo], ignore_index=True))
+                salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True))
                 st.session_state.f_id += 1
                 st.rerun()
 
@@ -145,131 +161,93 @@ def render_tab_colheita(tab):
     with tab:
         st.header("🚜 Lista de Colheita")
         pend = filtrar_status(df_pedidos, STATUS_PENDENTE)
-        if pend.empty: st.success("Nao ha pedidos pendentes."); return
-        resumo = {}
-        for _, ped in pend.iterrows():
-            try:
-                for it in json.loads(ped.get("itens", "[]")):
-                    chave = f"{it['nome']} ({it.get('tipo', 'UN')})"
-                    resumo[chave] = resumo.get(chave, 0) + it['qtd']
-            except: continue
-        for item, qtd in resumo.items(): st.write(f"🟢 **{qtd}x** {item}")
-        txt_z = "*COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in resumo.items()])
-        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+        if not pend.empty:
+            res = {}
+            for _, p in pend.iterrows():
+                for it in json.loads(p['itens']):
+                    k = f"{it['nome']} ({it['tipo']})"
+                    res[k] = res.get(k, 0) + it['qtd']
+            for k, v in res.items(): st.write(f"🟢 **{v}x** {k}")
+            txt_z = "*COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
+            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
 def render_tab_montagem(tab):
     with tab:
         st.header("⚖️ Montagem")
         pend_m = filtrar_status(df_pedidos, STATUS_PENDENTE)
-        if pend_m.empty: st.success("Nao ha pedidos para montar."); return
-        for idx, row in pend_m.iterrows():
+        for _, row in pend_m.iterrows():
             status_pgto = str(row.get("pagamento", PAGAMENTO_A_PAGAR)).strip().upper()
-            with st.expander(f"👤 {row.get('cliente', '?')} | {status_pgto}", expanded=True):
-                st.write(f"📍 {row.get('endereco', '')}")
-                itens_m = json.loads(row.get("itens", "[]"))
+            with st.expander(f"👤 {row['cliente']} | {status_pgto}", expanded=True):
+                st.write(f"📍 {row['endereco']}")
+                itens_m = json.loads(row['itens'])
                 total_m = 0.0
                 for i, it in enumerate(itens_m):
                     c_i, c_v = st.columns([3.5, 1.4])
-                    if str(it.get('tipo')).upper() == "KG":
+                    if str(it['tipo']).upper() == "KG":
+                        it['subtotal'] = c_v.number_input("R$", 0.0, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
                         c_i.markdown(f"⚖️ {it['nome']}")
-                        val_kg = c_v.number_input("R$", 0.0, step=0.1, key=f"m_{row['id']}_{i}", label_visibility="collapsed")
-                        it['subtotal'] = val_kg
                     else:
-                        c_i.markdown(f"✅ {it.get('qtd')}x {it.get('nome')}")
-                        c_v.markdown(f"R$ {parse_float(it.get('subtotal', 0)):.2f}")
-                    total_m += parse_float(it.get('subtotal', 0))
+                        c_i.markdown(f"✅ {it['qtd']}x {it['nome']}")
+                        c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
+                    total_m += parse_float(it['subtotal'])
+                
                 st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                 
                 col_ok, col_pago, col_print, col_del = st.columns([1.5, 1.5, 1, 1])
                 if col_ok.button("📦 OK", key=f"ok_{row['id']}", use_container_width=True):
-                    df_fresh = ler_aba("Pedidos", ttl=0)
-                    match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
-                    if not match.empty:
-                        df_fresh.at[match[0], "status"], df_fresh.at[match[0], "total"], df_fresh.at[match[0], "itens"] = "Pronto", total_m, json.dumps(itens_m)
-                        salvar_aba("Pedidos", df_fresh)
-                    st.rerun()
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    match = df_f.index[df_f["id"].astype(str) == str(row["id"])]
+                    df_f.at[match[0], "status"], df_f.at[match[0], "total"], df_f.at[match[0], "itens"] = "Pronto", total_m, json.dumps(itens_m)
+                    salvar_aba("Pedidos", df_f); st.rerun()
                 
                 if status_pgto != PAGAMENTO_PAGO:
                     if col_pago.button("💵 PAGO", key=f"mpay_{row['id']}", use_container_width=True):
-                        df_fresh = ler_aba("Pedidos", ttl=0)
-                        df_fresh.loc[df_fresh["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
-                        salvar_aba("Pedidos", df_fresh)
-                        st.rerun()
-
-                # --- LÓGICA DA ETIQUETA CENTRALIZADA (50x30mm) ---
-                largura = 32
-                l1 = "@dahortapmesa".center(largura)
-                l2 = limpar_texto(row['cliente']).upper().center(largura)
-                l3 = limpar_texto(row['endereco']).upper().center(largura)
-                l4 = f"R$ {total_m:.2f}".center(largura)
-                l5 = "pago".center(largura) if status_pgto == PAGAMENTO_PAGO else ""
+                        df_f = ler_aba("Pedidos", ttl=0)
+                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
+                        salvar_aba("Pedidos", df_f); st.rerun()
                 
-                txt_etiqueta = f"{l1}\n\n{l2}\n{l3}\n\n{l4}\n{l5}"
-                b64 = base64.b64encode(txt_etiqueta.encode('ascii', 'ignore')).decode()
+                # Impressão com os novos ajustes
+                b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, status_pgto)
                 col_print.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
-
+                
                 if col_del.button("🗑️", key=f"del_{row['id']}"):
-                    df_fresh = ler_aba("Pedidos", ttl=0)
-                    match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
-                    if not match.empty:
-                        df_fresh = df_fresh.drop(match[0]).reset_index(drop=True)
-                        salvar_aba("Pedidos", df_fresh)
-                    st.rerun()
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    df_f = df_f[df_f["id"].astype(str) != str(row["id"])].reset_index(drop=True)
+                    salvar_aba("Pedidos", df_f); st.rerun()
 
 def render_tab_historico(tab):
     with tab:
         st.header("📜 Histórico")
-        data_sel = st.date_input("Filtrar por data:", datetime.now()).strftime("%d/%m/%Y")
-        finalizados = filtrar_status(df_pedidos, STATUS_PRONTO)
-        if finalizados.empty: st.info("Sem pedidos finalizados."); return
-        
-        df_dia = finalizados[finalizados["data"] == data_sel].sort_values(by="id", ascending=False)
-        if df_dia.empty: st.warning(f"Nenhum pedido em {data_sel}"); return
-        
+        data_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
+        hist = filtrar_status(df_pedidos, STATUS_PRONTO)
+        df_dia = hist[hist["data"] == data_sel].sort_values("id", ascending=False)
         for _, row in df_dia.iterrows():
-            pago = str(row.get("pagamento", "")).strip().upper() == PAGAMENTO_PAGO
+            pago = str(row.get("pagamento")).strip().upper() == PAGAMENTO_PAGO
             cor = "#28a745" if pago else "#dc3545"
-            valor = parse_float(row.get("total", 0))
-            
-            # Layout de card original
-            card_html = f"""<div style="background-color:white; border-radius:10px; padding:15px; margin-bottom:5px; border-left:6px solid {cor}; color:black; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-<div style="display:flex; justify-content:space-between; align-items:center;"><b>👤 {row.get('cliente', 'S/N')}</b><span style="background:{cor}; color:white; padding:2px 10px; border-radius:15px; font-size:12px; font-weight:bold;">{row.get('pagamento', 'A PAGAR')}</span></div>
-<div style="font-size:13px; color:gray; margin-top:5px;">📅 {row.get('data', 'S/D')} | 📍 {row.get('endereco', 'S/E')}</div>
-<div style="margin-top:10px; font-size:18px; font-weight:bold; color:#2e7d32;">R$ {valor:.2f}</div></div>"""
+            card_html = f"""<div style="background-color:white; border-radius:10px; padding:15px; margin-bottom:5px; border-left:6px solid {cor}; color:black;">
+            <b>👤 {row['cliente']}</b> | {row['pagamento']}<br>📍 {row['endereco']}<br><b>R$ {parse_float(row['total']):.2f}</b></div>"""
             st.markdown(card_html, unsafe_allow_html=True)
             
             col_print, col_pago = st.columns(2)
-            
-            # Impressão no Histórico (Também centralizada e limpa)
-            largura = 32
-            txt_h = f"{'@dahortapmesa'.center(largura)}\n\n{limpar_texto(row['cliente']).upper().center(largura)}\n{limpar_texto(row['endereco']).upper().center(largura)}\n\n{f'R$ {valor:.2f}'.center(largura)}\n{('pago'.center(largura) if pago else '')}"
-            b64_h = base64.b64encode(txt_h.encode('ascii', 'ignore')).decode()
-            col_print.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print" style="text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; border:1px solid #ccc; color:black;">🖨️ Etiqueta</a>', unsafe_allow_html=True)
+            b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
+            col_print.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print" style="text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black;">🖨️ Reimprimir</a>', unsafe_allow_html=True)
             
             if not pago:
-                if col_pago.button(f"💵 Pagar", key=f"hpay_{row['id']}", use_container_width=True):
-                    df_fresh = ler_aba("Pedidos", ttl=0)
-                    match = df_fresh.index[df_fresh["id"].astype(str) == str(row["id"])]
-                    if not match.empty:
-                        df_fresh.at[match[0], "pagamento"] = PAGAMENTO_PAGO
-                        salvar_aba("Pedidos", df_fresh)
-                    st.rerun()
+                if col_pago.button("💵 Marcar Pago", key=f"hpay_{row['id']}"):
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
+                    salvar_aba("Pedidos", df_f); st.rerun()
             
-            with st.expander("📋 Detalhes dos Itens"):
-                try:
-                    for it in json.loads(row.get("itens", "[]")):
-                        st.write(f"• {it['qtd']}x {it['nome']} - R$ {parse_float(it.get('subtotal')):.2f}")
-                    if row.get("obs"): st.info(f"Obs: {row.get('obs')}")
-                except: st.error("Erro ao carregar itens.")
-            st.write("---")
+            with st.expander("📋 Detalhes"):
+                for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']}")
+                if row['obs']: st.info(f"Obs: {row['obs']}")
 
 def render_tab_financeiro(tab):
     with tab:
         st.header("💰 Financeiro")
-        recebido, pendente = calcular_totais_financeiros(df_pedidos)
-        c_rec, c_pen = st.columns(2)
-        c_rec.metric("Recebido", f"R$ {recebido:.2f}")
-        c_pen.metric("A Receber", f"R$ {pendente:.2f}")
+        rec, pen = calcular_totais_financeiros(df_pedidos)
+        st.metric("Recebido", f"R$ {rec:.2f}")
+        st.metric("A Receber", f"R$ {pen:.2f}")
 
-aba1, aba2, aba3, aba4, aba5 = st.tabs(["🛒 Novo Pedido", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro"])
+aba1, aba2, aba3, aba4, aba5 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro"])
 render_tab_novo_pedido(aba1); render_tab_colheita(aba2); render_tab_montagem(aba3); render_tab_historico(aba4); render_tab_financeiro(aba5)
