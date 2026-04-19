@@ -353,51 +353,48 @@ def render_tab_montagem(tab):
 
 def render_tab_historico(tab):
     with tab:
-        st.header("📜 Histórico de Pedidos")
+        st.header("📜 Histórico")
         
         if df_pedidos.empty:
-            st.info("O banco de dados de pedidos está vazio.")
+            st.info("Banco de dados vazio.")
             return
 
         finalizados = filtrar_status(df_pedidos, STATUS_PRONTO)
         
         if finalizados.empty:
-            st.warning("Ainda não existem pedidos finalizados.")
+            st.warning("Nenhum pedido finalizado.")
             return
 
+        # Ordenar do mais novo para o antigo
         finalizados = finalizados.sort_values(by="id", ascending=False)
 
         for _, row in finalizados.iterrows():
             pago = str(row.get("pagamento", "")).strip().upper() == PAGAMENTO_PAGO
-            cor_status = "#28a745" if pago else "#dc3545"
-            label_pgto = "PAGO" if pago else "A PAGAR"
-            valor_total = parse_float(row.get("total", 0))
-            
-            # Usei textos sem quebra de linha inicial para forçar o HTML
-            card_html = f"""<div style="background-color: white; border-radius: 12px; padding: 15px; margin-bottom: 10px; border-left: 6px solid {cor_status}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #1e1e1e;">
-<div style="display: flex; justify-content: space-between; align-items: center;">
-<span style="font-size: 1.1em; font-weight: bold;">👤 {row.get('cliente', 'S/N')}</span>
-<span style="background-color: {cor_status}; color: white; padding: 2px 10px; border-radius: 15px; font-size: 0.8em; font-weight: bold;">{label_pgto}</span>
-</div>
-<div style="color: #555; font-size: 0.9em; margin-top: 5px;">
-📅 <b>Data:</b> {row.get('data', 'S/D')} | 📍 <b>End:</b> {row.get('endereco', 'S/E')}
-</div>
-<div style="margin-top: 10px; font-weight: bold; color: #2e7d32; font-size: 1.2em;">
-R$ {valor_total:.2f}
-</div>
-</div>"""
-            
-            # O SEGREDO: Colocar o st.markdown sem espaços antes dele
-            st.markdown(card_html, unsafe_allow_html=True)
+            cor = "#28a745" if pago else "#dc3545"
+            txt_pgto = "PAGO" if pago else "A PAGAR"
+            valor = parse_float(row.get("total", 0))
+            cliente = row.get("cliente", "S/N")
+            data_ped = row.get("data", "S/D")
 
-            with st.expander("📋 Ver detalhes"):
+            # Montando o card sem quebras de linha complexas
+            card = f"""<div style="background-color:white; border-radius:10px; padding:15px; margin-bottom:10px; border-left:6px solid {cor}; color:black;">
+                <div style="display:flex; justify-content:space-between;">
+                    <b>👤 {cliente}</b>
+                    <span style="background:{cor}; color:white; padding:2px 8px; border-radius:10px; font-size:12px;">{txt_pgto}</span>
+                </div>
+                <div style="font-size:14px; color:gray; margin:5px 0;">📅 {data_ped}</div>
+                <div style="font-size:18px; font-weight:bold; color:#2e7d32;">R$ {valor:.2f}</div>
+            </div>"""
+            
+            st.markdown(card, unsafe_allow_html=True)
+
+            with st.expander("Detalhes"):
                 try:
                     itens = json.loads(row.get("itens", "[]"))
                     for it in itens:
-                        st.write(f"• {it['qtd']}x {it['nome']} — R$ {parse_float(it['subtotal']):.2f}")
+                        st.write(f"- {it['qtd']}x {it['nome']}")
                 except:
-                    st.write("Erro ao ler itens.")def render_tab_financeiro(tab):
-    with tab:
+                    st.write("Erro ao ler itens.")    with tab:
         st.header("💰 Financeiro")
         st.caption("Acompanhe o que ja foi recebido e o que ainda falta receber.")
         if df_pedidos.empty:
