@@ -12,21 +12,16 @@ from pathlib import Path
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
 def aplicar_estilos():
-    css_path = Path(__file__).with_name("styles.css")
-    try:
-        css = css_path.read_text(encoding="utf-8")
-        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    except:
-        st.markdown("""
-            <style>
-                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-                .hero-title {font-size: 24px; font-weight: bold;}
-                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px;}
-                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-            </style>
-        """, unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+            .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+            .hero-title {font-size: 24px; font-weight: bold;}
+            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px; border: none;}
+            .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+            .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+            .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+        </style>
+    """, unsafe_allow_html=True)
 
 aplicar_estilos()
 
@@ -196,10 +191,12 @@ with aba4:
             with st.expander("📋 Detalhes"):
                 if row.get('obs'): st.info(f"💡 {row['obs']}")
                 for it in json.loads(row['itens']):
+                    # MELHORIA: EXIBE VALOR E PESO/QTD NO DETALHE
+                    val_item = parse_float(it.get('subtotal'))
                     if str(it.get('tipo')).upper() == "KG":
-                        st.write(f"⚖️ **{it['nome']}**: R$ {parse_float(it.get('subtotal')):.2f}")
+                        st.write(f"⚖️ **{it['nome']}**: R$ {val_item:.2f}")
                     else:
-                        st.write(f"• **{it['qtd']}x {it['nome']}**: R$ {parse_float(it.get('subtotal')):.2f}")
+                        st.write(f"• **{it['qtd']}x {it['nome']}**: R$ {val_item:.2f}")
 
 # --- 5. FINANCEIRO ---
 with aba5:
@@ -220,10 +217,10 @@ with aba5:
         tab_dados = [{"Produto": k, "Qtd": v["qtd"], "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
         st.table(pd.DataFrame(tab_dados).sort_values("Total (R$)", ascending=False))
         
-        # Botão unificado de WhatsApp
+        # MELHORIA: COMPARTILHAMENTO EM TODO O FINANCEIRO
         txt_zap = f"*{titulo_zap}*\n*Total: R$ {v_total:.2f}*\n"
         txt_zap += "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
-        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_zap)}" target="_blank" class="btn-zap">📲 COMPARTILHAR RELATÓRIO</a>', unsafe_allow_html=True)
+        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_zap)}" target="_blank" class="btn-zap">📲 COMPARTILHAR NO WHATSAPP</a>', unsafe_allow_html=True)
 
     if menu == "Dia":
         d_hoje = datetime.now().strftime("%d/%m/%Y")
