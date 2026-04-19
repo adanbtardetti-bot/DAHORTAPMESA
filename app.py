@@ -214,7 +214,7 @@ with aba5:
                 sel = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fs_{idx}")]
                 if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO MANUAL")
 
-# --- 6. PRODUTOS ---
+# --- 6. PRODUTOS (ORGANIZADO IGUAL À MONTAGEM) ---
 with aba6:
     st.header("📦 Produtos")
     with st.expander("➕ Adicionar Novo Produto"):
@@ -224,12 +224,23 @@ with aba6:
             if n_p:
                 df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
                 salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
+    
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
-            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
-            en, ep, et = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper(), c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed"), c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
-            est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
-            if c5.button("💾", key=f"sv_{idx}"):
-                df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
-                salvar_aba("Produtos", df_produtos); st.rerun()
-            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.rerun()
+            # Criamos um container para cada produto para manter os botões juntos
+            with st.container(border=True):
+                c1, c2, c3, c4 = st.columns([2.5, 1, 1, 1])
+                en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
+                ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
+                et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
+                est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
+                
+                # Linha de botões horizontal igual à montagem
+                b_save, b_del, _ = st.columns([0.2, 0.2, 0.6])
+                
+                if b_save.button("💾", key=f"sv_{idx}", help="Salvar alterações"):
+                    df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
+                    salvar_aba("Produtos", df_produtos); st.rerun()
+                
+                if b_del.button("🗑️", key=f"dl_{idx}", help="Excluir produto"):
+                    salvar_aba("Produtos", df_produtos.drop(idx)); st.rerun()
