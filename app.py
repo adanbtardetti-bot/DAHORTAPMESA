@@ -57,6 +57,9 @@ def ler_aba(aba, ttl=30):
         df = conn.read(worksheet=aba, ttl=ttl)
         if df is None or df.empty: return pd.DataFrame()
         df.columns = [str(c).lower().strip() for c in df.columns]
+        # Garante coluna status para desativar produtos
+        if aba == "Produtos" and "status" not in df.columns:
+            df["status"] = "Ativo"
         return df.fillna("")
     except: return pd.DataFrame()
 
@@ -72,7 +75,8 @@ df_produtos = ler_aba("Produtos")
 st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div></div>', unsafe_allow_html=True)
 
 # --- ABAS ---
-aba1, aba2, aba3, aba4, aba5 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro"])
+# Adicionada a aba "📦 Produtos"
+aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
 # 1. NOVO PEDIDO
 with aba1:
@@ -86,7 +90,9 @@ with aba1:
     o_ped = st.text_input("Observação", key=f"o_{f}")
     
     carrinho, total_v = [], 0.0
-    for idx, r in df_produtos.iterrows():
+    # FILTRO: Mostra apenas produtos Ativos
+    prods_ativos = df_produtos[df_produtos['status'] != "Inativo"]
+    for idx, r in prods_ativos.iterrows():
         col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
         col_n.markdown(f"**{r['nome']}**")
         col_p.caption(f"R$ {r['preco']} / {r['tipo']}")
@@ -173,7 +179,6 @@ with aba4:
         for _, row in hist.iterrows():
             pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
             cor = "#28a745" if pago else "#dc3545"
-            # Visual de Card
             st.markdown(f"""
             <div style="background-color:white; border-radius:10px; padding:15px; border-left:8px solid {cor}; color:black; margin-bottom:5px;">
                 <b>👤 {row['cliente']}</b> | {row['pagamento']}<br>📍 {row['endereco']}<br><b>R$ {parse_float(row['total']):.2f}</b>
@@ -234,4 +239,46 @@ with aba5:
             txt = f"*RELATÓRIO GRUPO ({d_g})*\nTotal: R$ {v_g:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in r_g.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
     
-    st.markdown("<br><br><br><br>", unsafe_allow_html=True) # Espaço para o Manage App
+    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+
+# 6. GERENCIAR PRODUTOS (Aba Nova seguindo seu layout)
+with aba6:
+    st.header("📦 Gerenciar Produtos")
+    
+    with st.expander("➕ Adicionar Novo"):
+        c_n, c_p, c_t = st.columns([3, 1, 1])
+        n_p = c_n.text_input("Nome").upper()
+        p_p = c_p.number_input("Preço", 0.0)
+        t_p = c_t.selectbox("Tipo", ["UN", "KG"])
+        if st.button("SALVAR NOVO PRODUTO", type="primary", use_container_width=True):
+            if n_p:
+                df_p = ler_aba("Produtos", 0)
+                novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
+                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True))
+                st.rerun()
+
+    st.markdown("---")
+    df_l = ler_aba("Produtos", 0)
+    for idx, r in df_l.iterrows():
+        c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
+        
+        en = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper()
+        ep = c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed")
+        et = c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
+        
+        # Ativar/Desativar
+        status_ativo = (r['status'] == "Ativo")
+        est = c4.toggle("Ativo", value=status_ativo, key=f"es_{idx}")
+        
+        if c5.button("💾", key=f"sv_{idx}"):
+            df_l.at[idx, 'nome'] = en
+            df_l.at[idx, 'preco'] = ep
+            df_l.at[idx, 'tipo'] = et
+            df_l.at[idx, 'status'] = "Ativo" if est else "Inativo"
+            salvar_aba("Produtos", df_l)
+            st.rerun()
+            
+        if c6.button("🗑️", key=f"dl_{idx}"):
+            salvar_aba("Produtos", df_l.drop(idx))
+            st.rerun()
+    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
