@@ -39,13 +39,11 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     end = limpar_texto(endereco).upper().center(largura)
     val_txt = f"R$ {valor:.2f}"
     status_txt = "pago" if pagamento == PAGAMENTO_PAGO else ""
-    
     if status_txt:
         espacos = largura - len(val_txt) - len(status_txt) - 2
         linha_final = f"{val_txt}{' ' * espacos}{status_txt}"
     else:
         linha_final = val_txt.center(largura)
-    
     corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_final}"
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
@@ -98,6 +96,7 @@ with aba1:
             total_v += sub
             carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": r['tipo']})
     
+    st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
             df_at = ler_aba("Pedidos", ttl=0)
@@ -109,22 +108,28 @@ with aba1:
 # 2. COLHEITA
 with aba2:
     st.header("🚜 Colheita")
-    pend = df_pedidos[df_pedidos["status"] == STATUS_PENDENTE]
+    pend = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
     if not pend.empty:
         res = {}
         for _, p in pend.iterrows():
-            for it in json.loads(p['itens']):
-                k = f"{it['nome']} ({it['tipo']})"
-                res[k] = res.get(k, 0) + it['qtd']
+            try:
+                for it in json.loads(p['itens']):
+                    k = f"{it['nome']} ({it['tipo']})"
+                    res[k] = res.get(k, 0) + it['qtd']
+            except: continue
         for k, v in res.items(): st.write(f"🟢 **{v}x** {k}")
+        
+        # RESTAURADO: Botão do WhatsApp na Colheita
+        txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
+        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
 # 3. MONTAGEM
 with aba3:
     st.header("⚖️ Montagem")
-    pend_m = df_pedidos[df_pedidos["status"] == STATUS_PENDENTE]
+    pend_m = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PENDENTE]
     for _, row in pend_m.iterrows():
         stpg = str(row.get("pagamento")).upper()
-        with st.expander(f"👤 {row['cliente']} | {stpg}"):
+        with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
             st.write(f"📍 {row['endereco']}")
             itens_m = json.loads(row['itens'])
             total_m = 0.0
@@ -138,7 +143,9 @@ with aba3:
                     c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
                 total_m += parse_float(it['subtotal'])
             
-            c_ok, c_pg, c_pr = st.columns([1, 1, 1])
+            st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
+            
+            c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
             if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
                 df_f = ler_aba("Pedidos", ttl=0)
                 idx = df_f.index[df_f["id"].astype(str) == str(row["id"])][0]
@@ -149,58 +156,75 @@ with aba3:
                     df_f = ler_aba("Pedidos", ttl=0)
                     df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                     salvar_aba("Pedidos", df_f); st.rerun()
+            
             b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
             c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
+            
+            # RESTAURADO: Botão de Excluir na Montagem
+            if c_del.button("🗑️", key=f"del_{row['id']}"):
+                df_f = ler_aba("Pedidos", ttl=0)
+                df_f = df_f[df_f["id"].astype(str) != str(row["id"])].reset_index(drop=True)
+                salvar_aba("Pedidos", df_f); st.rerun()
 
 # 4. HISTÓRICO
 with aba4:
     st.header("📜 Histórico")
-    d_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
-    hist = df_pedidos[(df_pedidos["status"] == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)]
-    for _, row in hist.iterrows():
-        st.write(f"👤 **{row['cliente']}** - R$ {parse_float(row['total']):.2f} ({row['pagamento']})")
-        with st.expander("Ver Itens"):
-            for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']}")
+    d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
+    # CORRIGIDO: Exibição correta do histórico
+    hist_raw = df_pedidos[df_pedidos["status"].str.lower() == STATUS_PRONTO]
+    hist = hist_raw[hist_raw["data"] == d_sel].sort_values("id", ascending=False)
+    
+    if hist.empty:
+        st.info(f"Nenhum pedido finalizado em {d_sel}")
+    else:
+        for _, row in hist.iterrows():
+            pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
+            cor = "#28a745" if pago else "#dc3545"
+            st.markdown(f"""<div style="background:white; border-left:6px solid {cor}; padding:10px; color:black; border-radius:5px; margin-bottom:5px;">
+            <b>👤 {row['cliente']}</b> | {row['pagamento']}<br>📍 {row['endereco']}<br><b>R$ {parse_float(row['total']):.2f}</b></div>""", unsafe_allow_html=True)
+            with st.expander("📋 Detalhes"):
+                for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']} - R$ {it['subtotal']}")
+                if row['obs']: st.info(f"Obs: {row['obs']}")
 
-# 5. FINANCEIRO (NOVO)
+# 5. FINANCEIRO (ORGANIZADO)
 with aba5:
     st.header("💰 Financeiro")
-    opcao = st.radio("Escolha o relatório:", ["Hoje", "Período", "Relatório de Grupo"], horizontal=True)
+    op = st.radio("Relatório:", ["Panorama Hoje", "Por Período", "Grupo Manual"], horizontal=True)
 
-    if opcao == "Hoje":
+    if op == "Panorama Hoje":
         hoje = datetime.now().strftime("%d/%m/%Y")
-        df_hoje = df_pedidos[df_pedidos["data"] == hoje]
-        v_total = 0.0
-        itens_hoje = {}
-        for _, r in df_hoje.iterrows():
-            v_total += parse_float(r['total'])
+        df_h = df_pedidos[df_pedidos["data"] == hoje]
+        v_tot = df_h['total'].apply(parse_float).sum()
+        it_res = {}
+        for _, r in df_h.iterrows():
             for it in json.loads(r['itens']):
-                itens_hoje[it['nome']] = itens_hoje.get(it['nome'], 0) + it['qtd']
-        st.metric("Total Hoje", f"R$ {v_total:.2f}")
-        for k, v in itens_hoje.items(): st.write(f"• {v}x {k}")
+                it_res[it['nome']] = it_res.get(it['nome'], 0) + it['qtd']
+        st.metric("Total Hoje", f"R$ {v_tot:.2f}")
+        st.write("**Itens do dia:**")
+        for k, v in it_res.items(): st.write(f"• {v}x {k}")
 
-    elif opcao == "Período":
+    elif op == "Por Período":
         c1, c2 = st.columns(2)
-        ini, fim = c1.date_input("Início", datetime.now() - timedelta(days=7)), c2.date_input("Fim", datetime.now())
-        df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y').dt.date
-        df_per = df_pedidos[(df_pedidos['dt_obj'] >= ini) & (df_pedidos['dt_obj'] <= fim)]
-        total_per = df_per['total'].apply(parse_float).sum()
-        st.metric("Total Período", f"R$ {total_per:.2f}")
+        ini, fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
+        df_pedidos['dt_aux'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y').dt.date
+        df_per = df_pedidos[(df_pedidos['dt_aux'] >= ini) & (df_pedidos['dt_aux'] <= fim)]
+        v_per = df_per['total'].apply(parse_float).sum()
+        st.metric("Faturamento no Período", f"R$ {v_per:.2f}")
         res_p = {}
         for _, r in df_per.iterrows():
             for it in json.loads(r['itens']):
                 res_p[it['nome']] = res_p.get(it['nome'], 0) + it['qtd']
         st.table(pd.DataFrame([{"Item": k, "Qtd": v} for k, v in res_p.items()]))
 
-    elif opcao == "Relatório de Grupo":
-        st.write("Selecione os pedidos:")
-        selecionados = []
-        for i, row in df_pedidos.tail(15).iterrows():
-            if st.checkbox(f"👤 {row['cliente']} | R$ {row['total']} | {row['data']}", key=f"g_{row['id']}"):
-                selecionados.append(row)
-        if selecionados:
-            df_g = pd.DataFrame(selecionados)
-            st.metric("Total Grupo", f"R$ {df_g['total'].apply(parse_float).sum():.2f}")
+    elif op == "Grupo Manual":
+        st.write("Marque os pedidos para o relatório:")
+        sel = []
+        for i, r in df_pedidos.tail(15).iterrows():
+            if st.checkbox(f"{r['cliente']} | R$ {r['total']} | {r['data']}", key=f"g_{r['id']}"):
+                sel.append(r)
+        if sel:
+            df_g = pd.DataFrame(sel)
+            st.metric("Total Selecionado", f"R$ {df_g['total'].apply(parse_float).sum():.2f}")
             res_g = {}
             for _, r in df_g.iterrows():
                 for it in json.loads(r['itens']):
