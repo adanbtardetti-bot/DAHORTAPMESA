@@ -21,7 +21,7 @@ def aplicar_estilos():
             <style>
                 .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
                 .hero-title {font-size: 24px; font-weight: bold;}
-                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold; margin-top: 10px;}
                 .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
                 .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
                 .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
@@ -30,6 +30,7 @@ def aplicar_estilos():
 
 aplicar_estilos()
 
+# Conexão e Constantes
 conn = st.connection("gsheets", type=GSheetsConnection)
 STATUS_PENDENTE = "pendente"
 STATUS_PRONTO = "pronto"
@@ -61,7 +62,6 @@ def ler_aba(aba, ttl=0):
     try:
         df = conn.read(worksheet=aba, ttl=ttl)
         if df is None or df.empty: return pd.DataFrame()
-        # PADRONIZAÇÃO DE COLUNAS (Evita o KeyError: 'status')
         df.columns = [str(c).lower().strip() for c in df.columns]
         if aba == "Produtos" and "status" not in df.columns:
             df["status"] = "Ativo"
@@ -93,7 +93,6 @@ with aba1:
     
     carrinho, total_v = [], 0.0
     if not df_produtos.empty:
-        # Garante que filtra apenas ativos
         prods_ativos = df_produtos[df_produtos['status'].astype(str).str.lower() != "inativo"]
         for idx, r in prods_ativos.iterrows():
             col_n, col_p, col_q = st.columns([3.4, 1.3, 1.1])
@@ -183,25 +182,34 @@ with aba4:
             pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
             cor = "#28a745" if pago else "#dc3545"
             st.markdown(f'<div style="background-color:white; border-radius:10px; padding:15px; border-left:8px solid {cor}; color:black; margin-bottom:5px;"><b>👤 {row["cliente"]}</b> | {row["pagamento"]}<br>📍 {row["endereco"]}<br><b>R$ {parse_float(row["total"]):.2f}</b></div>', unsafe_allow_html=True)
+            
             c_h1, c_h2 = st.columns(2)
             b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
             c_h1.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Reimprimir</a>', unsafe_allow_html=True)
+            
             if not pago:
                 if c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                     df_f = ler_aba("Pedidos", ttl=0)
                     df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO
                     salvar_aba("Pedidos", df_f); st.rerun()
+            
             with st.expander("📋 Detalhes"):
-                for it in json.loads(row['itens']): st.write(f"• {it['qtd']}x {it['nome']}")
+                if row.get('obs'): st.info(f"💡 {row['obs']}")
+                for it in json.loads(row['itens']):
+                    if str(it.get('tipo')).upper() == "KG":
+                        st.write(f"⚖️ **{it['nome']}**: R$ {parse_float(it.get('subtotal')):.2f}")
+                    else:
+                        st.write(f"• **{it['qtd']}x {it['nome']}**: R$ {parse_float(it.get('subtotal')):.2f}")
 
 # --- 5. FINANCEIRO ---
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
-    def gerar_tabela_fin(df_res):
-        if df_res.empty: return st.warning("Nenhum dado.")
+    
+    def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
+        if df_res.empty: return st.warning("Nenhum dado encontrado.")
         v_total = df_res['total'].apply(parse_float).sum()
-        st.metric("Faturamento", f"R$ {v_total:.2f}")
+        st.metric("Faturamento Total", f"R$ {v_total:.2f}")
         res = {}
         for _, r in df_res.iterrows():
             for it in json.loads(r['itens']):
@@ -211,21 +219,25 @@ with aba5:
                 res[n]["val"] += parse_float(it.get('subtotal', 0))
         tab_dados = [{"Produto": k, "Qtd": v["qtd"], "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]
         st.table(pd.DataFrame(tab_dados).sort_values("Total (R$)", ascending=False))
-        return v_total, res
-    if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")])
+        
+        # Botão unificado de WhatsApp
+        txt_zap = f"*{titulo_zap}*\n*Total: R$ {v_total:.2f}*\n"
+        txt_zap += "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in res.items()])
+        st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_zap)}" target="_blank" class="btn-zap">📲 COMPARTILHAR RELATÓRIO</a>', unsafe_allow_html=True)
+
+    if menu == "Dia":
+        d_hoje = datetime.now().strftime("%d/%m/%Y")
+        gerar_tabela_fin(df_pedidos[df_pedidos["data"] == d_hoje], f"RELATÓRIO DO DIA ({d_hoje})")
     elif menu == "Período":
         c1, c2 = st.columns(2)
         i, f = c1.date_input("De", datetime.now()-timedelta(days=7)), c2.date_input("Até", datetime.now())
         df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-        gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)])
+        gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= i) & (df_pedidos['dt_obj'] <= f)], f"RELATÓRIO ({i.strftime('%d/%m')} a {f.strftime('%d/%m')})")
     elif menu == "Seleção Manual":
         d_g = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
         df_d = df_pedidos[df_pedidos["data"] == d_g]
         sel = [r for i, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"f_{r['id']}")]
-        if sel:
-            v_g, r_g = gerar_tabela_fin(pd.DataFrame(sel))
-            txt = f"*RELATÓRIO GRUPO*\nTotal: R$ {v_g:.2f}\n" + "\n".join([f"- {v['qtd']}x {k}: R$ {v['val']:.2f}" for k, v in r_g.items()])
-            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+        if sel: gerar_tabela_fin(pd.DataFrame(sel), "RELATÓRIO SELECIONADO")
 
 # --- 6. PRODUTOS ---
 with aba6:
