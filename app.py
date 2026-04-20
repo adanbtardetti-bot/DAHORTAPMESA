@@ -75,8 +75,13 @@ def salvar_aba(aba, df):
     conn.reset()
 
 # --- CARREGAR DADOS ---
-df_pedidos = ler_aba("Pedidos")
-df_produtos = ler_aba("Produtos")
+# Usar TTL curto para pedidos evitar fetch desnecessário a cada interação de widget
+df_pedidos = ler_aba("Pedidos", ttl=5)
+# Produtos ficam em session_state para não re-buscar no Sheets a cada clique no +
+if "df_produtos" not in st.session_state or st.session_state.get("reload_produtos", False):
+    st.session_state.df_produtos = ler_aba("Produtos", ttl=0)
+    st.session_state.reload_produtos = False
+df_produtos = st.session_state.df_produtos
 
 st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div></div>', unsafe_allow_html=True)
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
@@ -240,7 +245,7 @@ with aba6:
         if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
             if n_p:
                 df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
-                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.rerun()
+                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.session_state.reload_produtos = True; st.rerun()
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
@@ -248,6 +253,6 @@ with aba6:
             est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
             if c5.button("💾", key=f"sv_{idx}"):
                 df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
-                salvar_aba("Produtos", df_produtos); st.rerun()
-            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.rerun()
+                salvar_aba("Produtos", df_produtos); st.session_state.reload_produtos = True; st.rerun()
+            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rerun()
             st.divider() # LINHA DE DIVISÃO NA GESTÃO DE PRODUTOS
