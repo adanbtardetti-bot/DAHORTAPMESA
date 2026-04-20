@@ -75,9 +75,11 @@ def salvar_aba(aba, df):
     conn.reset()
 
 # --- CARREGAR DADOS ---
-# Usar TTL curto para pedidos evitar fetch desnecessário a cada interação de widget
-df_pedidos = ler_aba("Pedidos", ttl=5)
-# Produtos ficam em session_state para não re-buscar no Sheets a cada clique no +
+if "df_pedidos" not in st.session_state or st.session_state.get("reload_pedidos", False):
+    st.session_state.df_pedidos = ler_aba("Pedidos", ttl=0)
+    st.session_state.reload_pedidos = False
+df_pedidos = st.session_state.df_pedidos
+
 if "df_produtos" not in st.session_state or st.session_state.get("reload_produtos", False):
     st.session_state.df_produtos = ler_aba("Produtos", ttl=0)
     st.session_state.reload_produtos = False
@@ -113,7 +115,7 @@ with aba1:
         if n_cli and carrinho:
             df_at = ler_aba("Pedidos", ttl=0)
             novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
-            salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True)); st.session_state.f_id += 1; st.rerun()
+            salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True)); st.session_state.f_id += 1; st.session_state.reload_pedidos = True; st.rerun()
 
 # --- 2. COLHEITA ---
 with aba2:
@@ -164,16 +166,16 @@ with aba3:
                     if idx_list:
                         idx = idx_list[0]
                         df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
-                        salvar_aba("Pedidos", df_f); st.rerun()
+                        salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
-                    df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.rerun()
+                    df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
                 b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
                 c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
                 
                 if c_del.button("🗑️", key=f"del_{row['id']}"):
-                    df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.rerun()
+                    df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
 
 # --- 4. HISTÓRICO ---
 with aba4:
@@ -189,7 +191,7 @@ with aba4:
             b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
             c_h1.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Reimprimir</a>', unsafe_allow_html=True)
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
-                df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.rerun()
+                df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
             with st.expander("📋 Detalhes"):
                 for it in json.loads(row['itens']): 
                     st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
