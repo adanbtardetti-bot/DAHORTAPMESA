@@ -45,14 +45,28 @@ def limpar_texto(texto):
 
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     largura = 32
-    marca = "@dahortapmesa".center(largura)
+    # Comandos ESC/POS para Negrito e Tamanho Grande
+    negrito_on = "\x1b\x45\x01"
+    negrito_off = "\x1b\x45\x00"
+    dobro_on = "\x1b\x21\x30" 
+    dobro_off = "\x1b\x21\x00"
+
+    # Marca maior e em negrito
+    marca = f"{dobro_on}{negrito_on}@dahortapmesa{negrito_off}{dobro_off}".center(largura)
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
+    
     val_txt = f"R$ {valor:.2f}"
-    status_txt = "pago" if pagamento == PAGAMENTO_PAGO else ""
-    espacos = max(1, largura - len(val_txt) - len(status_txt) - 2)
-    linha_final = f"{val_txt}{' ' * espacos}{status_txt}"
-    corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_final}"
+    status_txt = "PAGO" if pagamento == PAGAMENTO_PAGO else ""
+    
+    # Valor maior e centralizado no meio do bloco
+    if status_txt:
+        linha_val = f"{dobro_on}{val_txt} ({status_txt}){dobro_off}".center(largura)
+    else:
+        linha_val = f"{dobro_on}{val_txt}{dobro_off}".center(largura)
+    
+    # Corpo compactado para centralizar na etiqueta
+    corpo = f"{marca}\n\n{cli}\n{end}\n\n{linha_val}"
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
@@ -109,7 +123,7 @@ with aba1:
                 sub = 0.0 if str(r['tipo']).upper() == "KG" else (qtd * p_u)
                 total_v += sub
                 carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": r['tipo']})
-            st.divider() # LINHA DE DIVISÃO
+            st.divider() # Divisória para organização visual
     st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
@@ -155,7 +169,7 @@ with aba3:
                         c_i.markdown(f"✅ {it['qtd']}x {limpar_texto(it['nome'])}")
                         c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
                     total_m += parse_float(it['subtotal'])
-                    st.divider() # LINHA DE DIVISÃO DENTRO DO EXPANDER
+                    st.divider() # Divisória na montagem
                 
                 st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                 c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
@@ -257,4 +271,4 @@ with aba6:
                 df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
                 salvar_aba("Produtos", df_produtos); st.session_state.reload_produtos = True; st.rerun()
             if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rerun()
-            st.divider() # LINHA DE DIVISÃO NA GESTÃO DE PRODUTOS
+            st.divider()
