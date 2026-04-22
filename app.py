@@ -51,26 +51,24 @@ def gerar_b64_etiqueta_dupla(cliente, endereco, valor, pagamento):
     negrito_off = "\x1b\x45\x00"
     
     # --- ETIQUETA 1: DADOS DO PEDIDO ---
-    e1 = "\n\n" # Espaço topo
-    e1 += f"{@dahortapmesa.center(largura)}\n\n"
+    e1 = "\n\n" 
+    e1 += f"{'@dahortapmesa'.center(largura)}\n\n" # Corrigido: adicionado aspas
     e1 += f"{limpar_texto(cliente).upper().center(largura)}\n"
     e1 += f"{limpar_texto(endereco).upper().center(largura)}\n\n"
     
     txt_val = f"R$ {valor:.2f} ({pagamento})".center(largura)
     e1 += f"{negrito_on}{txt_val}{negrito_off}\n\n\n"
 
-    # Se estiver pago, retorna apenas a Etiqueta 1
     if pagamento == PAGAMENTO_PAGO:
         return base64.b64encode(e1.encode('ascii', 'ignore')).decode()
 
     # --- ETIQUETA 2: APENAS QR CODE (Para Pedidos A PAGAR) ---
     pix_code = formatar_pix(valor)
-    e2 = "\n" # Espaço entre as etiquetas
+    e2 = "\n" 
     e2 += f"{'PAGAMENTO PIX'.center(largura)}\n"
     e2 += f"{negrito_on}{('R$ ' + f'{valor:.2f}').center(largura)}{negrito_off}\n"
     e2 += f"[qr]{pix_code}[/qr]\n\n\n"
     
-    # Junta as duas etiquetas em uma única transmissão para a impressora
     conteudo_total = e1 + e2
     return base64.b64encode(conteudo_total.encode('ascii', 'ignore')).decode()
 
@@ -188,7 +186,6 @@ with aba3:
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
-                # CHAMA A FUNÇÃO DE ETIQUETA DUPLA
                 b64 = gerar_b64_etiqueta_dupla(row['cliente'], row['endereco'], total_m, stpg)
                 c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Imprimir</a>', unsafe_allow_html=True)
                 
