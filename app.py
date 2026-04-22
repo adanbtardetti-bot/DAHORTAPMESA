@@ -44,49 +44,34 @@ def limpar_texto(texto):
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').replace("*", "")
 
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
-    largura = 32
-    # Comandos ESC/POS para Negrito e Tamanho Grande
+    largura = 32  # Largura padrão para papel de 58mm/etiqueta pequena
+    
+    # Comandos ESC/POS apenas para Negrito (sem dobrar o tamanho)
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
-    dobro_on = "\x1b\x21\x30" 
-    dobro_off = "\x1b\x21\x00"
 
-    # Marca maior e em negrito
-    marca = f"{dobro_on}{negrito_on}@dahortapmesa{negrito_off}{dobro_off}".center(largura)
+    # 1. Marca em Negrito e centralizada
+    marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
+    
+    # 2. Cliente e Endereço em fonte normal para caber na altura de 30mm
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
     
+    # 3. Valor e Status simplificados
     val_txt = f"R$ {valor:.2f}"
     status_txt = "PAGO" if pagamento == PAGAMENTO_PAGO else ""
     
-    # Valor maior e centralizado no meio do bloco
+    # Linha do valor em negrito para destacar bem
     if status_txt:
-        linha_val = f"{dobro_on}{val_txt} ({status_txt}){dobro_off}".center(largura)
+        linha_val = f"{negrito_on}{val_txt} ({status_txt}){negrito_off}".center(largura)
     else:
-        linha_val = f"{dobro_on}{val_txt}{dobro_off}".center(largura)
+        linha_val = f"{negrito_on}{val_txt}{negrito_off}".center(largura)
     
-    # Corpo compactado para centralizar na etiqueta
-    corpo = f"{marca}\n\n{cli}\n{end}\n\n{linha_val}"
+    # Montagem com menos saltos de linha para não estourar os 30mm de altura
+    corpo = f"{marca}\n{cli}\n{end}\n{linha_val}"
+    
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
-def parse_float(val):
-    try: return float(str(val).strip().replace(",", "."))
-    except: return 0.0
-
-def ler_aba(aba, ttl=0):
-    try:
-        df = conn.read(worksheet=aba, ttl=ttl)
-        if df is None or df.empty:
-            cols = ["id", "cliente", "endereco", "itens", "status", "data", "total", "pagamento", "obs"]
-            if aba == "Produtos": cols = ["id", "nome", "preco", "tipo", "status"]
-            return pd.DataFrame(columns=cols)
-        df.columns = [str(c).lower().strip() for c in df.columns]
-        return df.fillna("")
-    except: return pd.DataFrame()
-
-def salvar_aba(aba, df):
-    conn.update(worksheet=aba, data=df)
-    conn.reset()
 
 # --- CARREGAR DADOS ---
 if "df_pedidos" not in st.session_state or st.session_state.get("reload_pedidos", False):
