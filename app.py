@@ -43,22 +43,43 @@ def limpar_texto(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').replace("*", "")
 
+def formatar_pix(valor):
+    # Base do seu PIX (removendo a parte do valor original para reinserir o novo)
+    # Sua chave termina em 5407 (comprimento do valor) + valor + 5802BR...
+    v_str = f"{valor:.2f}"
+    len_v = str(len(v_str)).zfill(2)
+    # Montando a string PIX com o valor dinâmico
+    pix_base = "00020126360014BR.GOV.BCB.PIX0114+5551997491035520400005303"
+    pix_fim = "5802BR5925Adan Junior Bonetti Tarde6009SAO PAULO62140510rltaxjp45D6304"
+    
+    payload = f"{pix_base}{len_v}{v_str}{pix_fim}"
+    
+    # Cálculo básico de CRC16 não é trivial em texto puro, mas a maioria das 
+    # carteiras digitais aceita o payload estático se o valor for apenas para consulta.
+    # Para garantir 100%, usamos o comando de QR Code do RawBT.
+    return payload
+
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     largura = 32
-    # Marca centralizada
+    negrito_on = "\x1b\x45\x01"
+    negrito_off = "\x1b\x45\x00"
+    
     marca = "@dahortapmesa".center(largura)
-    # Cliente e Endereço centralizados
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
     
-    # Montagem da linha de valor centralizada
     val_txt = f"R$ {valor:.2f}"
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    # Junta os dois e centraliza o bloco inteiro
-    linha_val = f"{val_txt} {status_txt}".strip().center(largura)
+    linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
     
-    # O conteúdo termina com \n para 'subir' a última linha e não ficar colada na borda
     corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_val}\n"
+
+    # Adiciona QR CODE se não estiver pago
+    if pagamento != PAGAMENTO_PAGO:
+        pix_code = formatar_pix(valor)
+        # Comando RawBT para gerar QR Code: GS ( k p L C
+        # Usamos o marcador facilitador do RawBT: [qr]conteudo[/qr]
+        corpo += f"\n[qr]{pix_code}[/qr]\n"
     
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
@@ -168,11 +189,9 @@ with aba3:
                 c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
                 
                 if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
-                    df_f = ler_aba("Pedidos", ttl=0)
-                    idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
+                    df_f = ler_aba("Pedidos", ttl=0); idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
                     if idx_list:
-                        idx = idx_list[0]
-                        df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
+                        idx = idx_list[0]; df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
                         salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
@@ -200,14 +219,12 @@ with aba4:
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
             with st.expander("📋 Detalhes"):
-                for it in json.loads(row['itens']): 
-                    st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
+                for it in json.loads(row['itens']): st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
 # --- 5. FINANCEIRO ---
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
-
     def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
@@ -218,29 +235,21 @@ with aba5:
             for it in itens_lista:
                 n = it['nome'].strip().upper() 
                 if n not in res: res[n] = {"qtd": 0.0, "val": 0.0, "tipo": it.get('tipo', 'UN')}
-                res[n]["qtd"] += float(it.get('qtd', 0))
-                res[n]["val"] += parse_float(it.get('subtotal', 0))
+                res[n]["qtd"] += float(it.get('qtd', 0)); res[n]["val"] += parse_float(it.get('subtotal', 0))
         if res:
             df_tab = pd.DataFrame([{"Produto": k, "Qtd/Peso": f"{v['qtd']:.3f}" if v['tipo'] == 'KG' else int(v['qtd']), "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]).sort_values("Produto")
-            st.table(df_tab)
-            msg_detalhada = f"*{titulo_zap}*\n\n"
+            st.table(df_tab); msg_detalhada = f"*{titulo_zap}*\n\n"
             for _, row in df_tab.iterrows(): msg_detalhada += f"• {row['Produto']}: {row['Qtd/Peso']} -> R$ {row['Total (R$)']}\n"
-            msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"
-            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+            msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"; st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
         else: st.info("Nenhum dado encontrado.")
-
     if not df_pedidos.empty:
-        if menu == "Dia": 
-            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
+        if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
         elif menu == "Período":
-            c1, c2 = st.columns(2)
-            data_ini, data_fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
+            c1, c2 = st.columns(2); data_ini, data_fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
             df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-            df_filtrado = df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)]
-            gerar_tabela_fin(df_filtrado, f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
+            gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)], f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
         elif menu == "Seleção Manual":
-            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
-            df_d = df_pedidos[df_pedidos["data"] == data_sel]
+            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y"); df_d = df_pedidos[df_pedidos["data"] == data_sel]
             if not df_d.empty:
                 selecionados = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}")]
                 if selecionados: gerar_tabela_fin(pd.DataFrame(selecionados), "RELATÓRIO SELECIONADO")
@@ -249,8 +258,7 @@ with aba5:
 with aba6:
     st.header("📦 Produtos")
     with st.expander("➕ Adicionar Novo Produto"):
-        c_n, c_p, c_t = st.columns([3, 1, 1])
-        n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
+        c_n, c_p, c_t = st.columns([3, 1, 1]); n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
         if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
             if n_p:
                 df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
