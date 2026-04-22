@@ -44,25 +44,20 @@ def limpar_texto(texto):
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').replace("*", "")
 
 def formatar_pix(valor):
-    # Base do seu PIX (removendo a parte do valor original para reinserir o novo)
-    # Sua chave termina em 5407 (comprimento do valor) + valor + 5802BR...
     v_str = f"{valor:.2f}"
     len_v = str(len(v_str)).zfill(2)
-    # Montando a string PIX com o valor dinâmico
+    # Sua chave PIX estruturada
     pix_base = "00020126360014BR.GOV.BCB.PIX0114+5551997491035520400005303"
     pix_fim = "5802BR5925Adan Junior Bonetti Tarde6009SAO PAULO62140510rltaxjp45D6304"
-    
-    payload = f"{pix_base}{len_v}{v_str}{pix_fim}"
-    
-    # Cálculo básico de CRC16 não é trivial em texto puro, mas a maioria das 
-    # carteiras digitais aceita o payload estático se o valor for apenas para consulta.
-    # Para garantir 100%, usamos o comando de QR Code do RawBT.
-    return payload
+    return f"{pix_base}{len_v}{v_str}{pix_fim}"
 
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     largura = 32
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
+    
+    # \n no início "empurra" o texto para baixo, centralizando na etiqueta física
+    espacamento_topo = "\n\n" 
     
     marca = "@dahortapmesa".center(largura)
     cli = limpar_texto(cliente).upper().center(largura)
@@ -70,17 +65,19 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     
     val_txt = f"R$ {valor:.2f}"
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
     
-    corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_val}\n"
+    # Centraliza o conjunto Valor + Status
+    linha_val_texto = f"{val_txt} {status_txt}".strip()
+    linha_val_formatada = f"{negrito_on}{linha_val_texto.center(largura)}{negrito_off}"
+    
+    corpo = f"{espacamento_topo}{marca}\n\n{cli}\n\n{end}\n\n{linha_val_formatada}\n"
 
-    # Adiciona QR CODE se não estiver pago
     if pagamento != PAGAMENTO_PAGO:
         pix_code = formatar_pix(valor)
-        # Comando RawBT para gerar QR Code: GS ( k p L C
-        # Usamos o marcador facilitador do RawBT: [qr]conteudo[/qr]
+        # Tag [qr] para o RawBT converter em imagem
         corpo += f"\n[qr]{pix_code}[/qr]\n"
     
+    corpo += "\n\n" # Espaço final para evitar corte acidental
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
