@@ -49,7 +49,7 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
     
-    # Comando ESC J (Avanço de n/203 polegada). 16 unidades = aprox 2mm
+    # AJUSTE: Comando ESC J para avanço milimétrico (aprox. 2mm no topo)
     margem_topo = "\x1b\x4a\x10" 
 
     marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
@@ -60,7 +60,7 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
     linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
     
-    # Voltando aos saltos duplos para preencher a etiqueta e garantir a saída total
+    # AJUSTE: Voltando aos saltos duplos (\n\n) para garantir que a etiqueta saia toda
     corpo = f"{margem_topo}{marca}\n\n{cli}\n\n{end}\n\n{linha_val}"
     
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
