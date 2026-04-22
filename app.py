@@ -45,32 +45,27 @@ def formatar_pix(valor):
     pix_fim = "5802BR5925Adan Junior Bonetti Tarde6009SAO PAULO62140510rltaxjp45D6304"
     return f"{pix_base}{len_v}{v_str}{pix_fim}"
 
-def gerar_b64_etiqueta_dupla(cliente, endereco, valor, pagamento):
+def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     largura = 32
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
     
-    # --- ETIQUETA 1: DADOS DO PEDIDO ---
-    e1 = "\n\n" 
-    e1 += f"{'@dahortapmesa'.center(largura)}\n\n" # Corrigido: adicionado aspas
-    e1 += f"{limpar_texto(cliente).upper().center(largura)}\n"
-    e1 += f"{limpar_texto(endereco).upper().center(largura)}\n\n"
+    # Montagem do corpo (Etiqueta Única - Seu Layout)
+    corpo = "\n\n" 
+    corpo += f"{'@dahortapmesa'.center(largura)}\n\n"
+    corpo += f"{limpar_texto(cliente).upper().center(largura)}\n"
+    corpo += f"{limpar_texto(endereco).upper().center(largura)}\n\n"
     
     txt_val = f"R$ {valor:.2f} ({pagamento})".center(largura)
-    e1 += f"{negrito_on}{txt_val}{negrito_off}\n\n\n"
+    corpo += f"{negrito_on}{txt_val}{negrito_off}\n"
 
-    if pagamento == PAGAMENTO_PAGO:
-        return base64.b64encode(e1.encode('ascii', 'ignore')).decode()
-
-    # --- ETIQUETA 2: APENAS QR CODE (Para Pedidos A PAGAR) ---
-    pix_code = formatar_pix(valor)
-    e2 = "\n" 
-    e2 += f"{'PAGAMENTO PIX'.center(largura)}\n"
-    e2 += f"{negrito_on}{('R$ ' + f'{valor:.2f}').center(largura)}{negrito_off}\n"
-    e2 += f"[qr]{pix_code}[/qr]\n\n\n"
+    # Se NÃO estiver pago, adiciona o QR Code abaixo do valor
+    if pagamento != PAGAMENTO_PAGO:
+        pix_code = formatar_pix(valor)
+        corpo += f"\n[qr]{pix_code}[/qr]\n"
     
-    conteudo_total = e1 + e2
-    return base64.b64encode(conteudo_total.encode('ascii', 'ignore')).decode()
+    corpo += "\n\n" 
+    return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
     try: return float(str(val).strip().replace(",", "."))
@@ -186,7 +181,7 @@ with aba3:
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
-                b64 = gerar_b64_etiqueta_dupla(row['cliente'], row['endereco'], total_m, stpg)
+                b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
                 c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Imprimir</a>', unsafe_allow_html=True)
                 
                 if c_del.button("🗑️", key=f"del_{row['id']}"):
@@ -203,7 +198,7 @@ with aba4:
             cor = "#28a745" if pago else "#dc3545"
             st.markdown(f'<div style="background-color:white; border-radius:10px; padding:15px; border-left:8px solid {cor}; color:black; margin-bottom:5px;"><b>👤 {row["cliente"]}</b> | {row["pagamento"]}<br>📍 {row["endereco"]}<br><b>R$ {parse_float(row["total"]):.2f}</b></div>', unsafe_allow_html=True)
             c_h1, c_h2 = st.columns(2)
-            b64_h = gerar_b64_etiqueta_dupla(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
+            b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
             c_h1.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Reimprimir</a>', unsafe_allow_html=True)
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
@@ -228,17 +223,6 @@ with aba5:
             st.table(df_tab); msg_detalhada = f"*{titulo_zap}*\n\n"
             for _, row in df_tab.iterrows(): msg_detalhada += f"• {row['Produto']}: {row['Qtd/Peso']} -> R$ {row['Total (R$)']}\n"
             msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"; st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
-    if not df_pedidos.empty:
-        if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
-        elif menu == "Período":
-            c1, c2 = st.columns(2); data_ini, data_fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
-            df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-            gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)], f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
-        elif menu == "Seleção Manual":
-            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y"); df_d = df_pedidos[df_pedidos["data"] == data_sel]
-            if not df_d.empty:
-                selecionados = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}")]
-                if selecionados: gerar_tabela_fin(pd.DataFrame(selecionados), "RELATÓRIO SELECIONADO")
 
 # --- 6. PRODUTOS ---
 with aba6:
