@@ -25,6 +25,7 @@ def aplicar_estilos():
                 .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
                 .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
                 .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+                .obs-box {background-color: #fff3cd; color: #856404; padding: 8px; border-radius: 5px; border: 1px solid #ffeeba; margin-top: 5px; font-weight: bold;}
                 hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
             </style>
         """, unsafe_allow_html=True)
@@ -48,20 +49,16 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
 
-    # Marca centralizada e em negrito
     marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
-    
-    # Cliente e Endereço centralizados
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
     
     val_txt = f"R$ {valor:.2f}"
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
     
-    # Valor em negrito e centralizado
     linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
     
-    # Voltando ao espaçamento da primeira versão para preencher a etiqueta
+    # Espaçamento otimizado para 50x30mm
     corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_val}"
     
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
@@ -152,7 +149,14 @@ with aba3:
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
                 st.write(f"📍 {row['endereco']}")
+                
+                # --- EXIBIR OBSERVAÇÃO SE EXISTIR ---
+                if row.get("obs") and str(row["obs"]).strip() != "":
+                    st.markdown(f'<div class="obs-box">📝 OBS: {row["obs"]}</div>', unsafe_allow_html=True)
+                
                 itens_m, total_m = json.loads(row['itens']), 0.0
+                st.divider()
+                
                 for i, it in enumerate(itens_m):
                     c_i, c_v = st.columns([3.5, 1.4])
                     if str(it['tipo']).upper() == "KG":
@@ -204,6 +208,7 @@ with aba4:
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
             with st.expander("📋 Detalhes"):
+                if row.get("obs"): st.warning(f"OBS: {row['obs']}")
                 for it in json.loads(row['itens']): 
                     st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
@@ -267,4 +272,5 @@ with aba6:
             if c5.button("💾", key=f"sv_{idx}"):
                 df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
                 salvar_aba("Produtos", df_produtos); st.session_state.reload_produtos = True; st.rerun()
-            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rer
+            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rerun()
+            st.divider()
