@@ -46,7 +46,6 @@ def limpar_texto(texto):
 def formatar_pix(valor):
     v_str = f"{valor:.2f}"
     len_v = str(len(v_str)).zfill(2)
-    # Sua chave PIX estruturada
     pix_base = "00020126360014BR.GOV.BCB.PIX0114+5551997491035520400005303"
     pix_fim = "5802BR5925Adan Junior Bonetti Tarde6009SAO PAULO62140510rltaxjp45D6304"
     return f"{pix_base}{len_v}{v_str}{pix_fim}"
@@ -56,28 +55,27 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
     
-    # \n no início "empurra" o texto para baixo, centralizando na etiqueta física
-    espacamento_topo = "\n\n" 
+    # Espaço inicial para não colar no corte (ajuste se precisar de mais ou menos)
+    corpo = "\n\n" 
     
-    marca = "@dahortapmesa".center(largura)
-    cli = limpar_texto(cliente).upper().center(largura)
-    end = limpar_texto(endereco).upper().center(largura)
+    # Centralização manual garantida
+    corpo += f"{@dahortapmesa.center(largura)}\n\n"
+    corpo += f"{limpar_texto(cliente).upper().center(largura)}\n"
+    corpo += f"{limpar_texto(endereco).upper().center(largura)}\n\n"
     
+    # Valor e Status centralizados com negrito
     val_txt = f"R$ {valor:.2f}"
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    
-    # Centraliza o conjunto Valor + Status
-    linha_val_texto = f"{val_txt} {status_txt}".strip()
-    linha_val_formatada = f"{negrito_on}{linha_val_texto.center(largura)}{negrito_off}"
-    
-    corpo = f"{espacamento_topo}{marca}\n\n{cli}\n\n{end}\n\n{linha_val_formatada}\n"
+    linha_v = f"{val_txt} {status_txt}".strip().center(largura)
+    corpo += f"{negrito_on}{linha_v}{negrito_off}\n"
 
+    # Adiciona QR CODE se não estiver pago
     if pagamento != PAGAMENTO_PAGO:
         pix_code = formatar_pix(valor)
-        # Tag [qr] para o RawBT converter em imagem
+        # O RawBT centraliza melhor se colocarmos o comando puro
         corpo += f"\n[qr]{pix_code}[/qr]\n"
     
-    corpo += "\n\n" # Espaço final para evitar corte acidental
+    corpo += "\n\n" # Espaço final de segurança
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
@@ -110,7 +108,7 @@ if "df_produtos" not in st.session_state or st.session_state.get("reload_produto
     st.session_state.reload_produtos = False
 df_produtos = st.session_state.df_produtos
 
-st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div></div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestão</div></div>', unsafe_allow_html=True)
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
 # --- 1. NOVO PEDIDO ---
@@ -254,12 +252,6 @@ with aba5:
 # --- 6. PRODUTOS ---
 with aba6:
     st.header("📦 Produtos")
-    with st.expander("➕ Adicionar Novo Produto"):
-        c_n, c_p, c_t = st.columns([3, 1, 1]); n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
-        if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
-            if n_p:
-                df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
-                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.session_state.reload_produtos = True; st.rerun()
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
