@@ -48,23 +48,20 @@ def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     largura = 32 
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
-
-    # Marca centralizada e em negrito
-    marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
     
-    # Cliente e Endereço centralizados
+    # Comando ESC J (Avanço de n/203 polegada). 16 unidades = aprox 2mm
+    margem_topo = "\x1b\x4a\x10" 
+
+    marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
     
     val_txt = f"R$ {valor:.2f}"
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    
-    # Valor em negrito e centralizado
     linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
     
-    # AJUSTE: '\n' no início para evitar corte no topo
-    # Usando saltos simples para garantir que caiba na altura de 30mm
-    corpo = f"\n{marca}\n{cli}\n{end}\n{linha_val}"
+    # Voltando aos saltos duplos para preencher a etiqueta e garantir a saída total
+    corpo = f"{margem_topo}{marca}\n\n{cli}\n\n{end}\n\n{linha_val}"
     
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
