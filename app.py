@@ -12,22 +12,17 @@ from pathlib import Path
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
 def aplicar_estilos():
-    css_path = Path(__file__).with_name("styles.css")
-    try:
-        css = css_path.read_text(encoding="utf-8")
-        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    except:
-        st.markdown("""
-            <style>
-                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-                .hero-title {font-size: 24px; font-weight: bold;}
-                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-                hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
-            </style>
-        """, unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+            .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+            .hero-title {font-size: 24px; font-weight: bold;}
+            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+            .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:12px; border-radius:8px; color:black; border:1px solid #ddd; font-size:20px;}
+            .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+            .m-total {font-size: 22px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+            hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
+        </style>
+    """, unsafe_allow_html=True)
 
 aplicar_estilos()
 
@@ -50,33 +45,34 @@ def formatar_pix(valor):
     pix_fim = "5802BR5925Adan Junior Bonetti Tarde6009SAO PAULO62140510rltaxjp45D6304"
     return f"{pix_base}{len_v}{v_str}{pix_fim}"
 
-def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
+def gerar_b64_etiqueta_dupla(cliente, endereco, valor, pagamento):
     largura = 32
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
     
-    # Espaço inicial para não colar no corte (ajuste se precisar de mais ou menos)
-    corpo = "\n\n" 
+    # --- ETIQUETA 1: DADOS DO PEDIDO ---
+    e1 = "\n\n" # Espaço topo
+    e1 += f"{@dahortapmesa.center(largura)}\n\n"
+    e1 += f"{limpar_texto(cliente).upper().center(largura)}\n"
+    e1 += f"{limpar_texto(endereco).upper().center(largura)}\n\n"
     
-    # Centralização manual garantida
-    corpo += f"{@dahortapmesa.center(largura)}\n\n"
-    corpo += f"{limpar_texto(cliente).upper().center(largura)}\n"
-    corpo += f"{limpar_texto(endereco).upper().center(largura)}\n\n"
-    
-    # Valor e Status centralizados com negrito
-    val_txt = f"R$ {valor:.2f}"
-    status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    linha_v = f"{val_txt} {status_txt}".strip().center(largura)
-    corpo += f"{negrito_on}{linha_v}{negrito_off}\n"
+    txt_val = f"R$ {valor:.2f} ({pagamento})".center(largura)
+    e1 += f"{negrito_on}{txt_val}{negrito_off}\n\n\n"
 
-    # Adiciona QR CODE se não estiver pago
-    if pagamento != PAGAMENTO_PAGO:
-        pix_code = formatar_pix(valor)
-        # O RawBT centraliza melhor se colocarmos o comando puro
-        corpo += f"\n[qr]{pix_code}[/qr]\n"
+    # Se estiver pago, retorna apenas a Etiqueta 1
+    if pagamento == PAGAMENTO_PAGO:
+        return base64.b64encode(e1.encode('ascii', 'ignore')).decode()
+
+    # --- ETIQUETA 2: APENAS QR CODE (Para Pedidos A PAGAR) ---
+    pix_code = formatar_pix(valor)
+    e2 = "\n" # Espaço entre as etiquetas
+    e2 += f"{'PAGAMENTO PIX'.center(largura)}\n"
+    e2 += f"{negrito_on}{('R$ ' + f'{valor:.2f}').center(largura)}{negrito_off}\n"
+    e2 += f"[qr]{pix_code}[/qr]\n\n\n"
     
-    corpo += "\n\n" # Espaço final de segurança
-    return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
+    # Junta as duas etiquetas em uma única transmissão para a impressora
+    conteudo_total = e1 + e2
+    return base64.b64encode(conteudo_total.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
     try: return float(str(val).strip().replace(",", "."))
@@ -192,8 +188,9 @@ with aba3:
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
-                b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
-                c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
+                # CHAMA A FUNÇÃO DE ETIQUETA DUPLA
+                b64 = gerar_b64_etiqueta_dupla(row['cliente'], row['endereco'], total_m, stpg)
+                c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Imprimir</a>', unsafe_allow_html=True)
                 
                 if c_del.button("🗑️", key=f"del_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
@@ -209,12 +206,10 @@ with aba4:
             cor = "#28a745" if pago else "#dc3545"
             st.markdown(f'<div style="background-color:white; border-radius:10px; padding:15px; border-left:8px solid {cor}; color:black; margin-bottom:5px;"><b>👤 {row["cliente"]}</b> | {row["pagamento"]}<br>📍 {row["endereco"]}<br><b>R$ {parse_float(row["total"]):.2f}</b></div>', unsafe_allow_html=True)
             c_h1, c_h2 = st.columns(2)
-            b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
+            b64_h = gerar_b64_etiqueta_dupla(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
             c_h1.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Reimprimir</a>', unsafe_allow_html=True)
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
-            with st.expander("📋 Detalhes"):
-                for it in json.loads(row['itens']): st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
 # --- 5. FINANCEIRO ---
 with aba5:
@@ -236,7 +231,6 @@ with aba5:
             st.table(df_tab); msg_detalhada = f"*{titulo_zap}*\n\n"
             for _, row in df_tab.iterrows(): msg_detalhada += f"• {row['Produto']}: {row['Qtd/Peso']} -> R$ {row['Total (R$)']}\n"
             msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"; st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
-        else: st.info("Nenhum dado encontrado.")
     if not df_pedidos.empty:
         if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
         elif menu == "Período":
