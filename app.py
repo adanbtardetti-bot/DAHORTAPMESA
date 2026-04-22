@@ -41,34 +41,28 @@ PAGAMENTO_A_PAGAR = "A PAGAR"
 # --- FUNÇÕES DE UTILIDADE ---
 def limpar_texto(texto):
     if not texto: return ""
-    # Remove acentos e asteriscos para limpeza visual
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').replace("*", "")
 
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
-    largura = 32  # Ideal para 58mm / Etiqueta 50mm
-    
-    # Comandos ESC/POS apenas para Negrito (Ajustado para 50x30mm)
+    largura = 32 
     negrito_on = "\x1b\x45\x01"
     negrito_off = "\x1b\x45\x00"
 
-    # Marca em Negrito e centralizada
+    # Marca centralizada e em negrito
     marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
     
-    # Cliente e Endereço (Fonte normal para caber na altura de 30mm)
+    # Cliente e Endereço centralizados
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
     
     val_txt = f"R$ {valor:.2f}"
-    status_txt = "PAGO" if pagamento == PAGAMENTO_PAGO else ""
+    status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
     
-    # Valor em negrito e centralizado para destaque
-    if status_txt:
-        linha_val = f"{negrito_on}{val_txt} ({status_txt}){negrito_off}".center(largura)
-    else:
-        linha_val = f"{negrito_on}{val_txt}{negrito_off}".center(largura)
+    # Valor em negrito e centralizado
+    linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
     
-    # Montagem sem saltos de linha extras para não cortar na etiqueta 30mm
-    corpo = f"{marca}\n{cli}\n{end}\n{linha_val}"
+    # Voltando ao espaçamento da primeira versão para preencher a etiqueta
+    corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_val}"
     
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
@@ -172,7 +166,7 @@ with aba3:
                         c_i.markdown(f"✅ {it['qtd']}x {limpar_texto(it['nome'])}")
                         c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
                     total_m += parse_float(it['subtotal'])
-                    st.divider() # Divisória para evitar confusão
+                    st.divider()
                 
                 st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                 c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
@@ -273,5 +267,4 @@ with aba6:
             if c5.button("💾", key=f"sv_{idx}"):
                 df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
                 salvar_aba("Produtos", df_produtos); st.session_state.reload_produtos = True; st.rerun()
-            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rerun()
-            st.divider()
+            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rer
