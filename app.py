@@ -25,7 +25,6 @@ def aplicar_estilos():
                 .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
                 .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
                 .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-                .obs-box {background-color: #fff3cd; color: #856404; padding: 8px; border-radius: 5px; border: 1px solid #ffeeba; margin-top: 5px; font-weight: bold;}
                 hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
             </style>
         """, unsafe_allow_html=True)
@@ -45,24 +44,15 @@ def limpar_texto(texto):
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').replace("*", "")
 
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
-    largura = 32 
-    negrito_on = "\x1b\x45\x01"
-    negrito_off = "\x1b\x45\x00"
-    
-    # AJUSTE: Comando ESC J para avanço milimétrico (aprox. 2mm no topo)
-    margem_topo = "\x1b\x4a\x10" 
-
-    marca = f"{negrito_on}@dahortapmesa{negrito_off}".center(largura)
+    largura = 32
+    marca = "@dahortapmesa".center(largura)
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
-    
     val_txt = f"R$ {valor:.2f}"
-    status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    linha_val = f"{negrito_on}{val_txt} {status_txt}{negrito_off}".center(largura)
-    
-    # AJUSTE: Voltando aos saltos duplos (\n\n) para garantir que a etiqueta saia toda
-    corpo = f"{margem_topo}{marca}\n\n{cli}\n\n{end}\n\n{linha_val}"
-    
+    status_txt = "pago" if pagamento == PAGAMENTO_PAGO else ""
+    espacos = max(1, largura - len(val_txt) - len(status_txt) - 2)
+    linha_final = f"{val_txt}{' ' * espacos}{status_txt}"
+    corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_final}"
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
@@ -119,7 +109,7 @@ with aba1:
                 sub = 0.0 if str(r['tipo']).upper() == "KG" else (qtd * p_u)
                 total_v += sub
                 carrinho.append({"nome": r['nome'], "qtd": qtd, "preco": p_u, "subtotal": sub, "tipo": r['tipo']})
-            st.divider()
+            st.divider() # LINHA DE DIVISÃO
     st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
@@ -151,11 +141,7 @@ with aba3:
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
                 st.write(f"📍 {row['endereco']}")
-                if row.get("obs") and str(row["obs"]).strip() != "":
-                    st.markdown(f'<div class="obs-box">📝 OBS: {row["obs"]}</div>', unsafe_allow_html=True)
-                
                 itens_m, total_m = json.loads(row['itens']), 0.0
-                st.divider()
                 for i, it in enumerate(itens_m):
                     c_i, c_v = st.columns([3.5, 1.4])
                     if str(it['tipo']).upper() == "KG":
@@ -169,15 +155,17 @@ with aba3:
                         c_i.markdown(f"✅ {it['qtd']}x {limpar_texto(it['nome'])}")
                         c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
                     total_m += parse_float(it['subtotal'])
-                    st.divider()
+                    st.divider() # LINHA DE DIVISÃO DENTRO DO EXPANDER
                 
                 st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                 c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
                 
                 if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
-                    df_f = ler_aba("Pedidos", ttl=0); idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
                     if idx_list:
-                        idx = idx_list[0]; df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
+                        idx = idx_list[0]
+                        df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
                         salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                 
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
@@ -205,13 +193,14 @@ with aba4:
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
             with st.expander("📋 Detalhes"):
-                if row.get("obs"): st.warning(f"OBS: {row['obs']}")
-                for it in json.loads(row['itens']): st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
+                for it in json.loads(row['itens']): 
+                    st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
 # --- 5. FINANCEIRO ---
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
+
     def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
@@ -222,21 +211,29 @@ with aba5:
             for it in itens_lista:
                 n = it['nome'].strip().upper() 
                 if n not in res: res[n] = {"qtd": 0.0, "val": 0.0, "tipo": it.get('tipo', 'UN')}
-                res[n]["qtd"] += float(it.get('qtd', 0)); res[n]["val"] += parse_float(it.get('subtotal', 0))
+                res[n]["qtd"] += float(it.get('qtd', 0))
+                res[n]["val"] += parse_float(it.get('subtotal', 0))
         if res:
             df_tab = pd.DataFrame([{"Produto": k, "Qtd/Peso": f"{v['qtd']:.3f}" if v['tipo'] == 'KG' else int(v['qtd']), "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]).sort_values("Produto")
-            st.table(df_tab); msg_detalhada = f"*{titulo_zap}*\n\n"
+            st.table(df_tab)
+            msg_detalhada = f"*{titulo_zap}*\n\n"
             for _, row in df_tab.iterrows(): msg_detalhada += f"• {row['Produto']}: {row['Qtd/Peso']} -> R$ {row['Total (R$)']}\n"
-            msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"; st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+            msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"
+            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP DETALHADO</a>', unsafe_allow_html=True)
         else: st.info("Nenhum dado encontrado.")
+
     if not df_pedidos.empty:
-        if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
+        if menu == "Dia": 
+            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
         elif menu == "Período":
-            c1, c2 = st.columns(2); data_ini, data_fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
+            c1, c2 = st.columns(2)
+            data_ini, data_fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
             df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
-            gerar_tabela_fin(df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)], f"RELATÓRIO {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
+            df_filtrado = df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)]
+            gerar_tabela_fin(df_filtrado, f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
         elif menu == "Seleção Manual":
-            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y"); df_d = df_pedidos[df_pedidos["data"] == data_sel]
+            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
+            df_d = df_pedidos[df_pedidos["data"] == data_sel]
             if not df_d.empty:
                 selecionados = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}")]
                 if selecionados: gerar_tabela_fin(pd.DataFrame(selecionados), "RELATÓRIO SELECIONADO")
@@ -245,7 +242,8 @@ with aba5:
 with aba6:
     st.header("📦 Produtos")
     with st.expander("➕ Adicionar Novo Produto"):
-        c_n, c_p, c_t = st.columns([3, 1, 1]); n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
+        c_n, c_p, c_t = st.columns([3, 1, 1])
+        n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
         if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
             if n_p:
                 df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
@@ -259,4 +257,4 @@ with aba6:
                 df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
                 salvar_aba("Produtos", df_produtos); st.session_state.reload_produtos = True; st.rerun()
             if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rerun()
-            st.divider()
+            st.divider() # LINHA DE DIVISÃO NA GESTÃO DE PRODUTOS
