@@ -7,9 +7,13 @@ import base64
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
+import pytz  # Adicionado para controle de fuso horário
 
 # --- CONFIGURAÇÕES E ESTILOS ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
+
+# Configuração de Fuso Horário de Brasília
+fuso_br = pytz.timezone('America/Sao_Paulo')
 
 def aplicar_estilos():
     css_path = Path(__file__).with_name("styles.css")
@@ -25,6 +29,7 @@ def aplicar_estilos():
                 .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
                 .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
                 .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+                .obs-box {background-color: #fff3cd; padding: 5px 10px; border-radius: 5px; border-left: 5px solid #ffc107; margin-bottom: 10px; color: #856404; font-size: 14px;}
                 hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
             </style>
         """, unsafe_allow_html=True)
@@ -45,21 +50,13 @@ def limpar_texto(texto):
 
 def gerar_b64_etiqueta(cliente, endereco, valor, pagamento):
     largura = 32
-    # Marca centralizada
     marca = "@dahortapmesa".center(largura)
-    # Cliente e Endereço centralizados
     cli = limpar_texto(cliente).upper().center(largura)
     end = limpar_texto(endereco).upper().center(largura)
-    
-    # Montagem da linha de valor centralizada
     val_txt = f"R$ {valor:.2f}"
     status_txt = f"({pagamento})" if pagamento == PAGAMENTO_PAGO else ""
-    # Junta os dois e centraliza o bloco inteiro
     linha_val = f"{val_txt} {status_txt}".strip().center(largura)
-    
-    # O conteúdo termina com \n para 'subir' a última linha e não ficar colada na borda
     corpo = f"{marca}\n\n{cli}\n\n{end}\n\n{linha_val}\n"
-    
     return base64.b64encode(corpo.encode('ascii', 'ignore')).decode()
 
 def parse_float(val):
@@ -120,8 +117,10 @@ with aba1:
     st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
+            # Captura hora BR para evitar erro de data à noite
+            agora_br = datetime.now(fuso_br)
             df_at = ler_aba("Pedidos", ttl=0)
-            novo = pd.DataFrame([{"id": int(datetime.now().timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": datetime.now().strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
+            novo = pd.DataFrame([{"id": int(agora_br.timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": agora_br.strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
             salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True)); st.session_state.f_id += 1; st.session_state.reload_pedidos = True; st.rerun()
 
 # --- 2. COLHEITA ---
@@ -147,6 +146,10 @@ with aba3:
         for _, row in pend_m.iterrows():
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
+                # Exibe a observação se ela existir
+                if row.get('obs'):
+                    st.markdown(f'<div class="obs-box"><b>Obs:</b> {row["obs"]}</div>', unsafe_allow_html=True)
+                
                 st.write(f"📍 {row['endereco']}")
                 itens_m, total_m = json.loads(row['itens']), 0.0
                 for i, it in enumerate(itens_m):
@@ -187,7 +190,9 @@ with aba3:
 # --- 4. HISTÓRICO ---
 with aba4:
     st.header("📜 Histórico")
-    d_sel = st.date_input("Filtrar data:", datetime.now()).strftime("%d/%m/%Y")
+    # Filtro de data respeitando fuso horário
+    data_hoje_br = datetime.now(fuso_br)
+    d_sel = st.date_input("Filtrar data:", data_hoje_br).strftime("%d/%m/%Y")
     if not df_pedidos.empty:
         hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
         for _, row in hist.iterrows():
@@ -230,16 +235,18 @@ with aba5:
         else: st.info("Nenhum dado encontrado.")
 
     if not df_pedidos.empty:
+        # Data de hoje respeitando fuso BR
+        hoje_br = datetime.now(fuso_br).strftime("%d/%m/%Y")
         if menu == "Dia": 
-            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == datetime.now().strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
+            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == hoje_br], "RELATÓRIO DO DIA")
         elif menu == "Período":
             c1, c2 = st.columns(2)
-            data_ini, data_fim = c1.date_input("De", datetime.now() - timedelta(days=7)), c2.date_input("Até", datetime.now())
+            data_ini, data_fim = c1.date_input("De", datetime.now(fuso_br) - timedelta(days=7)), c2.date_input("Até", datetime.now(fuso_br))
             df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
             df_filtrado = df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)]
             gerar_tabela_fin(df_filtrado, f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
         elif menu == "Seleção Manual":
-            data_sel = st.date_input("Data:", datetime.now()).strftime("%d/%m/%Y")
+            data_sel = st.date_input("Data:", datetime.now(fuso_br)).strftime("%d/%m/%Y")
             df_d = df_pedidos[df_pedidos["data"] == data_sel]
             if not df_d.empty:
                 selecionados = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}")]
