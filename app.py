@@ -5,34 +5,31 @@ import json
 import urllib.parse
 import base64
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone # Adicionado timezone e timedelta
 from pathlib import Path
-import pytz  # Adicionado para controle de fuso horário
 
 # --- CONFIGURAÇÕES E ESTILOS ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
-# Configuração de Fuso Horário de Brasília
-fuso_br = pytz.timezone('America/Sao_Paulo')
+# Função manual para fuso horário de Brasília (UTC-3) sem precisar de pytz
+def obter_data_br():
+    fuso_brasilia = timezone(timedelta(hours=-3))
+    return datetime.now(fuso_brasilia)
 
 def aplicar_estilos():
-    css_path = Path(__file__).with_name("styles.css")
-    try:
-        css = css_path.read_text(encoding="utf-8")
-        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    except:
-        st.markdown("""
-            <style>
-                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-                .hero-title {font-size: 24px; font-weight: bold;}
-                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-                .obs-box {background-color: #fff3cd; padding: 5px 10px; border-radius: 5px; border-left: 5px solid #ffc107; margin-bottom: 10px; color: #856404; font-size: 14px;}
-                hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
-            </style>
-        """, unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+            .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+            .hero-title {font-size: 24px; font-weight: bold;}
+            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+            .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+            .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+            .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+            /* Estilo para a Observação na Montagem */
+            .obs-montagem {background-color: #fff3cd; padding: 10px; border-radius: 5px; border-left: 5px solid #ffc107; margin-bottom: 15px; color: #856404; font-weight: bold;}
+            hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
+        </style>
+    """, unsafe_allow_html=True)
 
 aplicar_estilos()
 
@@ -117,8 +114,7 @@ with aba1:
     st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
-            # Captura hora BR para evitar erro de data à noite
-            agora_br = datetime.now(fuso_br)
+            agora_br = obter_data_br() # Uso da nova função de fuso
             df_at = ler_aba("Pedidos", ttl=0)
             novo = pd.DataFrame([{"id": int(agora_br.timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": agora_br.strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
             salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True)); st.session_state.f_id += 1; st.session_state.reload_pedidos = True; st.rerun()
@@ -146,9 +142,9 @@ with aba3:
         for _, row in pend_m.iterrows():
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
-                # Exibe a observação se ela existir
+                # MOSTRAR OBSERVAÇÃO AQUI
                 if row.get('obs'):
-                    st.markdown(f'<div class="obs-box"><b>Obs:</b> {row["obs"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="obs-montagem">⚠️ OBS: {row["obs"]}</div>', unsafe_allow_html=True)
                 
                 st.write(f"📍 {row['endereco']}")
                 itens_m, total_m = json.loads(row['itens']), 0.0
@@ -190,9 +186,8 @@ with aba3:
 # --- 4. HISTÓRICO ---
 with aba4:
     st.header("📜 Histórico")
-    # Filtro de data respeitando fuso horário
-    data_hoje_br = datetime.now(fuso_br)
-    d_sel = st.date_input("Filtrar data:", data_hoje_br).strftime("%d/%m/%Y")
+    agora_br = obter_data_br()
+    d_sel = st.date_input("Filtrar data:", agora_br).strftime("%d/%m/%Y")
     if not df_pedidos.empty:
         hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
         for _, row in hist.iterrows():
@@ -235,18 +230,17 @@ with aba5:
         else: st.info("Nenhum dado encontrado.")
 
     if not df_pedidos.empty:
-        # Data de hoje respeitando fuso BR
-        hoje_br = datetime.now(fuso_br).strftime("%d/%m/%Y")
+        agora_br = obter_data_br()
         if menu == "Dia": 
-            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == hoje_br], "RELATÓRIO DO DIA")
+            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == agora_br.strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
         elif menu == "Período":
             c1, c2 = st.columns(2)
-            data_ini, data_fim = c1.date_input("De", datetime.now(fuso_br) - timedelta(days=7)), c2.date_input("Até", datetime.now(fuso_br))
+            data_ini, data_fim = c1.date_input("De", agora_br - timedelta(days=7)), c2.date_input("Até", agora_br)
             df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
             df_filtrado = df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)]
             gerar_tabela_fin(df_filtrado, f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
         elif menu == "Seleção Manual":
-            data_sel = st.date_input("Data:", datetime.now(fuso_br)).strftime("%d/%m/%Y")
+            data_sel = st.date_input("Data:", agora_br).strftime("%d/%m/%Y")
             df_d = df_pedidos[df_pedidos["data"] == data_sel]
             if not df_d.empty:
                 selecionados = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}")]
