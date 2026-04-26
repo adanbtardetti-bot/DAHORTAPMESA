@@ -5,34 +5,35 @@ import json
 import urllib.parse
 import base64
 import unicodedata
-from datetime import datetime, timedelta, timezone # Adicionado timezone e timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # --- CONFIGURAÇÕES E ESTILOS ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
-# Função manual para fuso horário de Brasília (UTC-3) sem precisar de pytz
+# Função para fuso de Brasília sem bibliotecas externas (evita o erro ModuleNotFound)
 def obter_data_br():
-    fuso_brasilia = timezone(timedelta(hours=-3))
-    return datetime.now(fuso_brasilia)
+    return datetime.now(timezone(timedelta(hours=-3)))
 
 def aplicar_estilos():
-    st.markdown("""
-        <style>
-            .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-            .hero-title {font-size: 24px; font-weight: bold;}
-            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-            .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-            .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-            .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-            /* Estilo para a Observação na Montagem */
-            .obs-montagem {background-color: #fff3cd; padding: 10px; border-radius: 5px; border-left: 5px solid #ffc107; margin-bottom: 15px; color: #856404; font-weight: bold;}
-            hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
-        </style>
-    """, unsafe_allow_html=True)
+    css_path = Path(__file__).with_name("styles.css")
+    try:
+        css = css_path.read_text(encoding="utf-8")
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except:
+        st.markdown("""
+            <style>
+                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+                .hero-title {font-size: 24px; font-weight: bold;}
+                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+                hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
+            </style>
+        """, unsafe_allow_html=True)
 
 aplicar_estilos()
-
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 STATUS_PENDENTE = "pendente"
@@ -40,7 +41,6 @@ STATUS_PRONTO = "pronto"
 PAGAMENTO_PAGO = "PAGO"
 PAGAMENTO_A_PAGAR = "A PAGAR"
 
-# --- FUNÇÕES DE UTILIDADE ---
 def limpar_texto(texto):
     if not texto: return ""
     return "".join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').replace("*", "")
@@ -75,7 +75,6 @@ def salvar_aba(aba, df):
     conn.update(worksheet=aba, data=df)
     conn.reset()
 
-# --- CARREGAR DADOS ---
 if "df_pedidos" not in st.session_state or st.session_state.get("reload_pedidos", False):
     st.session_state.df_pedidos = ler_aba("Pedidos", ttl=0)
     st.session_state.reload_pedidos = False
@@ -114,7 +113,7 @@ with aba1:
     st.markdown(f"<div class='total-badge'>Total parcial: R$ {total_v:.2f}</div>", unsafe_allow_html=True)
     if st.button("💾 SALVAR PEDIDO", type="primary", use_container_width=True):
         if n_cli and carrinho:
-            agora_br = obter_data_br() # Uso da nova função de fuso
+            agora_br = obter_data_br()
             df_at = ler_aba("Pedidos", ttl=0)
             novo = pd.DataFrame([{"id": int(agora_br.timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": agora_br.strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
             salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True)); st.session_state.f_id += 1; st.session_state.reload_pedidos = True; st.rerun()
@@ -142,10 +141,8 @@ with aba3:
         for _, row in pend_m.iterrows():
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
-                # MOSTRAR OBSERVAÇÃO AQUI
-                if row.get('obs'):
-                    st.markdown(f'<div class="obs-montagem">⚠️ OBS: {row["obs"]}</div>', unsafe_allow_html=True)
-                
+                # RESTAURADO: Layout original de texto
+                if row.get('obs'): st.warning(f"⚠️ {row['obs']}")
                 st.write(f"📍 {row['endereco']}")
                 itens_m, total_m = json.loads(row['itens']), 0.0
                 for i, it in enumerate(itens_m):
@@ -162,10 +159,10 @@ with aba3:
                         c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
                     total_m += parse_float(it['subtotal'])
                     st.divider()
-                
                 st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-                c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
                 
+                # RESTAURADO: Colunas originais dos botões
+                c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
                 if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0)
                     idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
@@ -173,13 +170,10 @@ with aba3:
                         idx = idx_list[0]
                         df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
                         salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
-                
                 if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
-                
                 b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
                 c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
-                
                 if c_del.button("🗑️", key=f"del_{row['id']}"):
                     df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
 
@@ -200,14 +194,12 @@ with aba4:
             if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
                 df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
             with st.expander("📋 Detalhes"):
-                for it in json.loads(row['itens']): 
-                    st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
+                for it in json.loads(row['itens']): st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
 
 # --- 5. FINANCEIRO ---
 with aba5:
     st.header("💰 Financeiro")
     menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
-
     def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
         v_total = df_res['total'].apply(parse_float).sum()
         st.metric("Faturamento", f"R$ {v_total:.2f}")
@@ -218,8 +210,7 @@ with aba5:
             for it in itens_lista:
                 n = it['nome'].strip().upper() 
                 if n not in res: res[n] = {"qtd": 0.0, "val": 0.0, "tipo": it.get('tipo', 'UN')}
-                res[n]["qtd"] += float(it.get('qtd', 0))
-                res[n]["val"] += parse_float(it.get('subtotal', 0))
+                res[n]["qtd"] += float(it.get('qtd', 0)); res[n]["val"] += parse_float(it.get('subtotal', 0))
         if res:
             df_tab = pd.DataFrame([{"Produto": k, "Qtd/Peso": f"{v['qtd']:.3f}" if v['tipo'] == 'KG' else int(v['qtd']), "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]).sort_values("Produto")
             st.table(df_tab)
@@ -228,11 +219,9 @@ with aba5:
             msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
         else: st.info("Nenhum dado encontrado.")
-
     if not df_pedidos.empty:
         agora_br = obter_data_br()
-        if menu == "Dia": 
-            gerar_tabela_fin(df_pedidos[df_pedidos["data"] == agora_br.strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
+        if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == agora_br.strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
         elif menu == "Período":
             c1, c2 = st.columns(2)
             data_ini, data_fim = c1.date_input("De", agora_br - timedelta(days=7)), c2.date_input("Até", agora_br)
@@ -258,6 +247,7 @@ with aba6:
                 salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.session_state.reload_produtos = True; st.rerun()
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
+            # RESTAURADO: Layout original de 6 colunas para edição
             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
             en, ep, et = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper(), c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed"), c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
             est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
