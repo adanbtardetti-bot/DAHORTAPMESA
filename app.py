@@ -15,18 +15,22 @@ def obter_data_br():
     return datetime.now(timezone(timedelta(hours=-3)))
 
 def aplicar_estilos():
-    st.markdown("""
-        <style>
-            .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-            .hero-title {font-size: 24px; font-weight: bold;}
-            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-            .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-            .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-            .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-            hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
-            .edit-section {background-color: #f9f9f9; padding: 15px; border-radius: 10px; border: 1px dashed #ccc; margin-top: 10px;}
-        </style>
-    """, unsafe_allow_html=True)
+    css_path = Path(__file__).with_name("styles.css")
+    try:
+        css = css_path.read_text(encoding="utf-8")
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except:
+        st.markdown("""
+            <style>
+                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+                .hero-title {font-size: 24px; font-weight: bold;}
+                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+                hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
+            </style>
+        """, unsafe_allow_html=True)
 
 aplicar_estilos()
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -70,7 +74,6 @@ def salvar_aba(aba, df):
     conn.update(worksheet=aba, data=df)
     conn.reset()
 
-# --- CARREGAR DADOS ---
 if "df_pedidos" not in st.session_state or st.session_state.get("reload_pedidos", False):
     st.session_state.df_pedidos = ler_aba("Pedidos", ttl=0)
     st.session_state.reload_pedidos = False
@@ -84,7 +87,7 @@ df_produtos = st.session_state.df_produtos
 st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div></div>', unsafe_allow_html=True)
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
-# --- 1. NOVO PEDIDO (Mantido original) ---
+# --- 1. NOVO PEDIDO ---
 with aba1:
     if 'f_id' not in st.session_state: st.session_state.f_id = 0
     f = st.session_state.f_id
@@ -114,7 +117,7 @@ with aba1:
             novo = pd.DataFrame([{"id": int(agora_br.timestamp()), "cliente": n_cli, "endereco": e_cli, "itens": json.dumps(carrinho), "status": "pendente", "data": agora_br.strftime("%d/%m/%Y"), "total": total_v, "pagamento": PAGAMENTO_PAGO if pg else PAGAMENTO_A_PAGAR, "obs": o_ped}])
             salvar_aba("Pedidos", pd.concat([df_at, novo], ignore_index=True)); st.session_state.f_id += 1; st.session_state.reload_pedidos = True; st.rerun()
 
-# --- 2. COLHEITA (Mantido original) ---
+# --- 2. COLHEITA ---
 with aba2:
     st.header("🚜 Colheita")
     if not df_pedidos.empty:
@@ -129,7 +132,7 @@ with aba2:
             txt_z = "*LISTA DE COLHEITA*\n" + "\n".join([f"• {v}x {k}" for k, v in res.items()])
             st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(txt_z)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
 
-# --- 3. MONTAGEM (CORRIGIDO) ---
+# --- 3. MONTAGEM ---
 with aba3:
     st.header("⚖️ Montagem")
     if not df_pedidos.empty:
@@ -143,87 +146,53 @@ with aba3:
                 if edit_key not in st.session_state: st.session_state[edit_key] = False
 
                 if st.session_state[edit_key]:
-                    st.markdown('<div class="edit-section">', unsafe_allow_html=True)
+                    # Interface de edição restaurada
                     novo_nome = st.text_input("Editar Cliente", row['cliente'], key=f"edit_n_{row['id']}").upper()
                     novo_end = st.text_input("Editar Endereço", row['endereco'], key=f"edit_e_{row['id']}").upper()
                     
-                    # --- SEÇÃO ADICIONAR ITEM ---
-                    st.write("➕ **Adicionar novo item:**")
+                    st.write("---")
+                    # Adicionar item novo
                     c_add_p, c_add_q, c_add_b = st.columns([2.5, 1, 1])
-                    lista_produtos = ["-- Selecionar --"] + sorted(df_produtos[df_produtos['status'].astype(str).str.lower() == "ativo"]['nome'].tolist())
-                    prod_selecionado = c_add_p.selectbox("Produto", lista_produtos, key=f"sel_extra_{row['id']}", label_visibility="collapsed")
-                    qtd_selecionada = c_add_q.number_input("Qtd", 1, step=1, key=f"qtd_extra_{row['id']}", label_visibility="collapsed")
+                    lista_prod = ["-- Selecionar --"] + sorted(df_produtos[df_produtos['status'].astype(str).str.lower() == "ativo"]['nome'].tolist())
+                    p_sel = c_add_p.selectbox("Produto", lista_prod, key=f"sel_e_{row['id']}", label_visibility="collapsed")
+                    q_sel = c_add_q.number_input("Qtd", 1, step=1, key=f"qtd_e_{row['id']}", label_visibility="collapsed")
                     
-                    if c_add_b.button("Adicionar", key=f"btn_add_extra_{row['id']}"):
-                        if prod_selecionado != "-- Selecionar --":
-                            itens_atuais = json.loads(row['itens'])
-                            p_info = df_produtos[df_produtos['nome'] == prod_selecionado].iloc[0]
-                            
-                            novo_item = {
-                                "nome": prod_selecionado, 
-                                "qtd": qtd_selecionada, 
-                                "preco": parse_float(p_info['preco']), 
-                                "tipo": p_info['tipo'],
-                                "subtotal": 0.0 if p_info['tipo'] == "KG" else (qtd_selecionada * parse_float(p_info['preco']))
-                            }
-                            itens_atuais.append(novo_item)
-                            
-                            # Salva imediatamente para refletir na tela
-                            df_f = ler_aba("Pedidos", ttl=0)
-                            df_f.loc[df_f["id"].astype(str) == str(row["id"]), "itens"] = json.dumps(itens_atuais)
-                            salvar_aba("Pedidos", df_f)
-                            st.session_state.reload_pedidos = True
-                            st.rerun()
+                    if c_add_b.button("Adicionar", key=f"btn_e_{row['id']}"):
+                        if p_sel != "-- Selecionar --":
+                            its = json.loads(row['itens'])
+                            p_inf = df_produtos[df_produtos['nome'] == p_sel].iloc[0]
+                            its.append({"nome": p_sel, "qtd": q_sel, "preco": parse_float(p_inf['preco']), "tipo": p_inf['tipo'], "subtotal": 0.0 if p_inf['tipo'] == "KG" else (q_sel * parse_float(p_inf['preco']))})
+                            df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "itens"] = json.dumps(its); salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
 
                     st.write("---")
-                    # --- LISTA DE ITENS PARA EDIÇÃO ---
-                    itens_m = json.loads(row['itens'])
-                    novos_itens_finais = []
-                    total_editado = 0.0
-
-                    for i, it in enumerate(itens_m):
-                        c_n, c_q, c_del = st.columns([3, 1, 0.5])
+                    itens_edit = json.loads(row['itens'])
+                    novos_itens_f = []
+                    total_ed = 0.0
+                    for i, it in enumerate(itens_edit):
+                        c_n, c_q, c_d = st.columns([3, 1, 0.5])
                         c_n.markdown(f"**{it['nome']}**")
-                        nova_qtd = c_q.number_input("Q", value=int(it['qtd']), min_value=0, key=f"ed_q_{row['id']}_{i}", label_visibility="collapsed")
-                        
-                        if c_del.button("🗑️", key=f"del_it_{row['id']}_{i}"):
-                            nova_qtd = 0 # Marcar para remoção
-
-                        if nova_qtd > 0:
-                            it['qtd'] = nova_qtd
-                            if str(it['tipo']).upper() != "KG":
-                                it['subtotal'] = nova_qtd * parse_float(it['preco'])
-                            novos_itens_finais.append(it)
-                            total_editado += parse_float(it['subtotal'])
+                        nq = c_q.number_input("Q", value=int(it['qtd']), min_value=0, key=f"ed_q_{row['id']}_{i}", label_visibility="collapsed")
+                        if c_d.button("🗑️", key=f"del_i_{row['id']}_{i}"): nq = 0
+                        if nq > 0:
+                            it['qtd'] = nq
+                            if str(it['tipo']).upper() != "KG": it['subtotal'] = nq * parse_float(it['preco'])
+                            novos_itens_f.append(it); total_ed += parse_float(it['subtotal'])
                     
-                    st.write(f"**Total parcial: R$ {total_editado:.2f}**")
-                    
-                    col_save, col_cancel = st.columns(2)
-                    if col_save.button("💾 SALVAR ALTERAÇÕES", key=f"save_edit_{row['id']}", type="primary", use_container_width=True):
-                        df_f = ler_aba("Pedidos", ttl=0)
-                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "itens", "total"]] = [novo_nome, novo_end, json.dumps(novos_itens_finais), total_editado]
-                        salvar_aba("Pedidos", df_f)
-                        st.session_state[edit_key] = False
-                        st.session_state.reload_pedidos = True
-                        st.rerun()
-                    
-                    if col_cancel.button("Cancelar", key=f"canc_edit_{row['id']}", use_container_width=True):
-                        st.session_state[edit_key] = False
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    st.write(f"**Total parcial: R$ {total_ed:.2f}**")
+                    if st.button("💾 SALVAR", key=f"save_ed_{row['id']}", type="primary", use_container_width=True):
+                        df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "itens", "total"]] = [novo_nome, novo_end, json.dumps(novos_itens_f), total_ed]; salvar_aba("Pedidos", df_f); st.session_state[edit_key] = False; st.session_state.reload_pedidos = True; st.rerun()
+                    if st.button("Cancelar", key=f"cn_ed_{row['id']}", use_container_width=True): st.session_state[edit_key] = False; st.rerun()
                 
                 else:
-                    # Layout normal de exibição (Pesagem)
                     st.write(f"📍 {row['endereco']}")
                     itens_m, total_m = json.loads(row['itens']), 0.0
                     for i, it in enumerate(itens_m):
                         c_i, c_v = st.columns([3.5, 1.4])
                         if str(it['tipo']).upper() == "KG":
-                            val_input = c_v.number_input("R$", value=None, key=f"m_{row['id']}_{i}", label_visibility="collapsed", placeholder="0,00")
-                            v_digitado = parse_float(val_input) if val_input is not None else 0.0
-                            it['subtotal'] = v_digitado
-                            if v_digitado > 0 and parse_float(it.get('preco', 0)) > 0:
-                                it['qtd'] = round(v_digitado / parse_float(it['preco']), 3)
+                            val_in = c_v.number_input("R$", value=None, key=f"m_{row['id']}_{i}", label_visibility="collapsed", placeholder="0,00")
+                            v_dig = parse_float(val_in) if val_in is not None else 0.0
+                            it['subtotal'] = v_dig
+                            if v_dig > 0 and parse_float(it.get('preco', 0)) > 0: it['qtd'] = round(v_dig / parse_float(it['preco']), 3)
                             c_i.markdown(f"⚖️ {limpar_texto(it['nome'])}")
                         else:
                             c_i.markdown(f"✅ {it['qtd']}x {limpar_texto(it['nome'])}")
@@ -232,28 +201,102 @@ with aba3:
                         st.divider()
                     st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                     
-                    c_ok, c_pg, c_ed, c_pr, c_del = st.columns([1, 1, 1, 0.5, 0.5])
+                    # BOTÕES ORIGINAIS COM LÁPIS SIMPLES
+                    c_ok, c_pg, c_ed, c_pr, c_del = st.columns([1, 1, 0.5, 0.5, 0.5])
                     
                     if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
-                        df_f = ler_aba("Pedidos", ttl=0)
-                        idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
-                        if idx_list:
-                            idx = idx_list[0]
-                            df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
+                        df_f = ler_aba("Pedidos", 0); idx_l = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
+                        if idx_l:
+                            df_f.at[idx_l[0], "status"], df_f.at[idx_l[0], "total"], df_f.at[idx_l[0], "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
                             salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                     
                     if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
-                        df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
+                        df_f = ler_aba("Pedidos", 0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
                     
-                    if c_ed.button("✏️ Editar", key=f"btn_ed_{row['id']}"):
-                        st.session_state[edit_key] = True
-                        st.rerun()
+                    if c_ed.button("✏️", key=f"btn_e_{row['id']}"): # Botão de lápis simplificado
+                        st.session_state[edit_key] = True; st.rerun()
 
                     b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
                     c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
                     
                     if c_del.button("🗑️", key=f"del_{row['id']}"):
-                        df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
+                        df_f = ler_aba("Pedidos", 0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
 
-# --- 4, 5 e 6 (Histórico, Financeiro e Produtos) ---
-# (O código para estas abas permanece igual ao seu original)
+# --- 4. HISTÓRICO ---
+with aba4:
+    st.header("📜 Histórico")
+    agora_br = obter_data_br()
+    d_sel = st.date_input("Filtrar data:", agora_br).strftime("%d/%m/%Y")
+    if not df_pedidos.empty:
+        hist = df_pedidos[(df_pedidos["status"].str.lower() == STATUS_PRONTO) & (df_pedidos["data"] == d_sel)].sort_values("id", ascending=False)
+        for _, row in hist.iterrows():
+            pago = str(row.get("pagamento")).upper() == PAGAMENTO_PAGO
+            cor = "#28a745" if pago else "#dc3545"
+            st.markdown(f'<div style="background-color:white; border-radius:10px; padding:15px; border-left:8px solid {cor}; color:black; margin-bottom:5px;"><b>👤 {row["cliente"]}</b> | {row["pagamento"]}<br>📍 {row["endereco"]}<br><b>R$ {parse_float(row["total"]):.2f}</b></div>', unsafe_allow_html=True)
+            c_h1, c_h2 = st.columns(2)
+            b64_h = gerar_b64_etiqueta(row['cliente'], row['endereco'], parse_float(row['total']), row['pagamento'])
+            c_h1.markdown(f'<a href="intent:base64,{b64_h}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️ Reimprimir</a>', unsafe_allow_html=True)
+            if not pago and c_h2.button("💵 Marcar Pago", key=f"hpay_{row['id']}", use_container_width=True):
+                df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
+            with st.expander("📋 Detalhes"):
+                for it in json.loads(row['itens']): st.write(f"• {it['qtd']} {it['tipo']} - {it['nome']}: R$ {parse_float(it.get('subtotal')):.2f}")
+
+# --- 5. FINANCEIRO ---
+with aba5:
+    st.header("💰 Financeiro")
+    menu = st.radio("Relatório:", ["Dia", "Período", "Seleção Manual"], horizontal=True)
+    def gerar_tabela_fin(df_res, titulo_zap="RELATÓRIO"):
+        v_total = df_res['total'].apply(parse_float).sum()
+        st.metric("Faturamento", f"R$ {v_total:.2f}")
+        res = {}
+        for _, r in df_res.iterrows():
+            try: itens_lista = json.loads(r['itens'])
+            except: continue
+            for it in itens_lista:
+                n = it['nome'].strip().upper() 
+                if n not in res: res[n] = {"qtd": 0.0, "val": 0.0, "tipo": it.get('tipo', 'UN')}
+                res[n]["qtd"] += float(it.get('qtd', 0)); res[n]["val"] += parse_float(it.get('subtotal', 0))
+        if res:
+            df_tab = pd.DataFrame([{"Produto": k, "Qtd/Peso": f"{v['qtd']:.3f}" if v['tipo'] == 'KG' else int(v['qtd']), "Total (R$)": f"{v['val']:.2f}"} for k, v in res.items()]).sort_values("Produto")
+            st.table(df_tab)
+            msg_detalhada = f"*{titulo_zap}*\n\n"
+            for _, row in df_tab.iterrows(): msg_detalhada += f"• {row['Produto']}: {row['Qtd/Peso']} -> R$ {row['Total (R$)']}\n"
+            msg_detalhada += f"\n*TOTAL GERAL: R$ {v_total:.2f}*"
+            st.markdown(f'<a href="https://wa.me/?text={urllib.parse.quote(msg_detalhada)}" target="_blank" class="btn-zap">ENVIAR WHATSAPP</a>', unsafe_allow_html=True)
+        else: st.info("Nenhum dado encontrado.")
+    if not df_pedidos.empty:
+        agora_br = obter_data_br()
+        if menu == "Dia": gerar_tabela_fin(df_pedidos[df_pedidos["data"] == agora_br.strftime("%d/%m/%Y")], "RELATÓRIO DO DIA")
+        elif menu == "Período":
+            c1, c2 = st.columns(2)
+            data_ini, data_fim = c1.date_input("De", agora_br - timedelta(days=7)), c2.date_input("Até", agora_br)
+            df_pedidos['dt_obj'] = pd.to_datetime(df_pedidos['data'], format='%d/%m/%Y', errors='coerce').dt.date
+            df_filtrado = df_pedidos[(df_pedidos['dt_obj'] >= data_ini) & (df_pedidos['dt_obj'] <= data_fim)]
+            gerar_tabela_fin(df_filtrado, f"RELATÓRIO DE {data_ini.strftime('%d/%m')} A {data_fim.strftime('%d/%m')}")
+        elif menu == "Seleção Manual":
+            data_sel = st.date_input("Data:", agora_br).strftime("%d/%m/%Y")
+            df_d = df_pedidos[df_pedidos["data"] == data_sel]
+            if not df_d.empty:
+                selecionados = [r for idx, r in df_d.iterrows() if st.checkbox(f"👤 {r['cliente']} | R$ {r['total']}", key=f"fin_sel_{idx}")]
+                if selecionados: gerar_tabela_fin(pd.DataFrame(selecionados), "RELATÓRIO SELECIONADO")
+
+# --- 6. PRODUTOS ---
+with aba6:
+    st.header("📦 Produtos")
+    with st.expander("➕ Adicionar Novo Produto"):
+        c_n, c_p, c_t = st.columns([3, 1, 1])
+        n_p, p_p, t_p = c_n.text_input("Nome").upper(), c_p.number_input("Preço", 0.0), c_t.selectbox("Tipo", ["UN", "KG"])
+        if st.button("SALVAR PRODUTO", type="primary", use_container_width=True):
+            if n_p:
+                df_p = ler_aba("Produtos", 0); novo_p = pd.DataFrame([{"nome": n_p, "preco": p_p, "tipo": t_p, "status": "Ativo"}])
+                salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.session_state.reload_produtos = True; st.rerun()
+    if not df_produtos.empty:
+        for idx, r in df_produtos.iterrows():
+            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
+            en, ep, et = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper(), c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed"), c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
+            est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
+            if c5.button("💾", key=f"sv_{idx}"):
+                df_produtos.at[idx, 'nome'], df_produtos.at[idx, 'preco'], df_produtos.at[idx, 'tipo'], df_produtos.at[idx, 'status'] = en, ep, et, ("Ativo" if est else "Inativo")
+                salvar_aba("Produtos", df_produtos); st.session_state.reload_produtos = True; st.rerun()
+            if c6.button("🗑️", key=f"dl_{idx}"): salvar_aba("Produtos", df_produtos.drop(idx)); st.session_state.reload_produtos = True; st.rerun()
+            st.divider()
