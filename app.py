@@ -1,6 +1,6 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-import pd
+import pandas as pd
 import json
 import urllib.parse
 import base64
@@ -24,7 +24,7 @@ def aplicar_estilos():
             .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
             .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
             hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
-            .edit-box {background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px dashed #ccc; margin-bottom: 15px;}
+            .edit-box {background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px dashed #ccc; margin-bottom: 15px; color: black;}
         </style>
     """, unsafe_allow_html=True)
 
@@ -57,6 +57,7 @@ def parse_float(val):
 def ler_aba(aba, ttl=0):
     try:
         df = conn.read(worksheet=aba, ttl=ttl)
+        if df is None: return pd.DataFrame()
         df.columns = [str(c).lower().strip() for c in df.columns]
         return df.fillna("")
     except: return pd.DataFrame()
@@ -79,7 +80,7 @@ df_produtos = st.session_state.df_produtos
 st.markdown('<div class="hero-banner"><div class="hero-title">Horta Gestao</div></div>', unsafe_allow_html=True)
 aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs(["🛒 Novo", "🚜 Colheita", "⚖️ Montagem", "📜 Histórico", "💰 Financeiro", "📦 Produtos"])
 
-# --- ABA 3: MONTAGEM (Onde está a edição) ---
+# --- ABA 3: MONTAGEM ---
 with aba3:
     st.header("⚖️ Montagem")
     if not df_pedidos.empty:
@@ -88,13 +89,11 @@ with aba3:
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
                 
-                # Controle do Modo de Edição
                 edit_key = f"edit_active_{row['id']}"
                 if edit_key not in st.session_state: st.session_state[edit_key] = False
 
                 if st.session_state[edit_key]:
-                    # --- INTERFACE DE EDIÇÃO ---
-                    st.markdown('<div class="edit-box">', unsafe_allow_html=True)
+                    st.markdown('<div class="edit-box"><b>Edição de Pedido</b>', unsafe_allow_html=True)
                     novo_n = st.text_input("Nome", row['cliente'], key=f"inp_n_{row['id']}").upper()
                     novo_e = st.text_input("Endereço", row['endereco'], key=f"inp_e_{row['id']}").upper()
                     
@@ -137,17 +136,16 @@ with aba3:
 
                     if st.button("💾 SALVAR ALTERAÇÕES", key=f"save_{row['id']}", type="primary", use_container_width=True):
                         df_f = ler_aba("Pedidos", 0)
-                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "total"]] = [novo_n, novo_e, total_ed]
+                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "total", "itens"]] = [novo_n, novo_e, total_ed, json.dumps(novos_itens_final)]
                         salvar_aba("Pedidos", df_f)
                         st.session_state[edit_key] = False
                         st.session_state.reload_pedidos = True; st.rerun()
                     
-                    if st.button("Cancelar", key=f"canc_{row['id']}", use_container_width=True):
+                    if st.button("Sair sem salvar", key=f"canc_{row['id']}", use_container_width=True):
                         st.session_state[edit_key] = False; st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
                 
                 else:
-                    # --- LAYOUT ORIGINAL DE EXIBIÇÃO ---
                     if row.get('obs'): st.warning(f"⚠️ {row['obs']}")
                     st.write(f"📍 {row['endereco']}")
                     itens_m, total_m = json.loads(row['itens']), 0.0
@@ -168,7 +166,6 @@ with aba3:
                     
                     st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                     
-                    # BOTÕES COM O EDITAR INCLUÍDO
                     c_ok, c_pg, c_edit, c_pr, c_del = st.columns([1, 1, 1, 0.5, 0.5])
                     
                     if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
@@ -189,5 +186,3 @@ with aba3:
                     
                     if c_del.button("🗑️", key=f"del_{row['id']}"):
                         df_f = ler_aba("Pedidos", 0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
-
-# Os outros códigos das abas (Novo, Colheita, Histórico, Financeiro, Produtos) permanecem os mesmos do seu arquivo original...
