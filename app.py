@@ -11,22 +11,27 @@ from pathlib import Path
 # --- CONFIGURAÇÕES E ESTILOS ---
 st.set_page_config(page_title="Horta Gestão", page_icon="🥬", layout="wide")
 
+# Função para fuso de Brasília sem bibliotecas externas (evita o erro ModuleNotFound)
 def obter_data_br():
     return datetime.now(timezone(timedelta(hours=-3)))
 
 def aplicar_estilos():
-    st.markdown("""
-        <style>
-            .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
-            .hero-title {font-size: 24px; font-weight: bold;}
-            .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
-            .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
-            .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
-            .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
-            hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
-            .edit-section {background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-top: 10px; border: 1px dashed #999;}
-        </style>
-    """, unsafe_allow_html=True)
+    css_path = Path(__file__).with_name("styles.css")
+    try:
+        css = css_path.read_text(encoding="utf-8")
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except:
+        st.markdown("""
+            <style>
+                .hero-banner {background-color: #0f1d12; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;}
+                .hero-title {font-size: 24px; font-weight: bold;}
+                .btn-zap {background-color: #25d366; color: white !important; padding: 10px; border-radius: 5px; text-decoration: none; display: block; text-align: center; font-weight: bold;}
+                .btn-print {text-decoration:none; display:block; text-align:center; background:#f0f2f6; padding:8px; border-radius:5px; color:black; border:1px solid #ddd;}
+                .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
+                .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
+                hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
+            </style>
+        """, unsafe_allow_html=True)
 
 aplicar_estilos()
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -70,7 +75,6 @@ def salvar_aba(aba, df):
     conn.update(worksheet=aba, data=df)
     conn.reset()
 
-# --- CARREGAR DADOS ---
 if "df_pedidos" not in st.session_state or st.session_state.get("reload_pedidos", False):
     st.session_state.df_pedidos = ler_aba("Pedidos", ttl=0)
     st.session_state.reload_pedidos = False
@@ -137,113 +141,41 @@ with aba3:
         for _, row in pend_m.iterrows():
             stpg = str(row.get("pagamento")).upper()
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
+                # RESTAURADO: Layout original de texto
                 if row.get('obs'): st.warning(f"⚠️ {row['obs']}")
+                st.write(f"📍 {row['endereco']}")
+                itens_m, total_m = json.loads(row['itens']), 0.0
+                for i, it in enumerate(itens_m):
+                    c_i, c_v = st.columns([3.5, 1.4])
+                    if str(it['tipo']).upper() == "KG":
+                        val_input = c_v.number_input("R$", value=None, key=f"m_{row['id']}_{i}", label_visibility="collapsed", placeholder="0,00")
+                        v_digitado = parse_float(val_input) if val_input is not None else 0.0
+                        it['subtotal'] = v_digitado
+                        if v_digitado > 0 and parse_float(it.get('preco', 0)) > 0:
+                            it['qtd'] = round(v_digitado / parse_float(it['preco']), 3)
+                        c_i.markdown(f"⚖️ {limpar_texto(it['nome'])}")
+                    else:
+                        c_i.markdown(f"✅ {it['qtd']}x {limpar_texto(it['nome'])}")
+                        c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
+                    total_m += parse_float(it['subtotal'])
+                    st.divider()
+                st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                 
-                edit_key = f"edit_mode_{row['id']}"
-                if edit_key not in st.session_state: st.session_state[edit_key] = False
-
-                if st.session_state[edit_key]:
-                    st.markdown('<div class="edit-section"><b>Modo Edição</b>', unsafe_allow_html=True)
-                    novo_nome = st.text_input("Cliente", row['cliente'], key=f"edit_n_{row['id']}").upper()
-                    novo_end = st.text_input("Endereço", row['endereco'], key=f"edit_e_{row['id']}").upper()
-                    
-                    # Carrega itens do estado da sessão para não perder ao adicionar novos
-                    temp_itens_key = f"temp_itens_{row['id']}"
-                    if temp_itens_key not in st.session_state:
-                        st.session_state[temp_itens_key] = json.loads(row['itens'])
-                    
-                    # --- ADICIONAR NOVO ITEM ---
-                    st.write("➕ **Adicionar novo item:**")
-                    c_add_p, c_add_q, c_add_b = st.columns([2.5, 1, 1])
-                    lista_p = ["-- Selecionar --"] + sorted(df_produtos[df_produtos['status'].astype(str).str.lower() == "ativo"]['nome'].tolist())
-                    p_sel = c_add_p.selectbox("Produto", lista_p, key=f"sel_extra_{row['id']}", label_visibility="collapsed")
-                    q_sel = c_add_q.number_input("Qtd", 1, step=1, key=f"qtd_extra_{row['id']}", label_visibility="collapsed")
-                    
-                    if c_add_b.button("Adicionar", key=f"btn_add_extra_{row['id']}"):
-                        if p_sel != "-- Selecionar --":
-                            p_info = df_produtos[df_produtos['nome'] == p_sel].iloc[0]
-                            st.session_state[temp_itens_key].append({
-                                "nome": p_sel, "qtd": q_sel, "preco": parse_float(p_info['preco']), 
-                                "tipo": p_info['tipo'], "subtotal": 0.0 if p_info['tipo']=="KG" else (q_sel * parse_float(p_info['preco']))
-                            })
-                            st.rerun()
-
-                    st.write("---")
-                    # Listagem de itens atuais no modo edição
-                    total_at = 0.0
-                    for i, it in enumerate(st.session_state[temp_itens_key]):
-                        c_n, c_q, c_del = st.columns([3, 1, 0.5])
-                        c_n.write(f"{it['nome']} ({it['tipo']})")
-                        nova_qtd = c_q.number_input("Q", value=int(it['qtd']), min_value=0, key=f"ed_q_{row['id']}_{i}", label_visibility="collapsed")
-                        
-                        if nova_qtd == 0 or c_del.button("🗑️", key=f"del_it_{row['id']}_{i}"):
-                            st.session_state[temp_itens_key].pop(i)
-                            st.rerun()
-                        
-                        it['qtd'] = nova_qtd
-                        if it['tipo'] != "KG": it['subtotal'] = nova_qtd * it['preco']
-                        total_at += it['subtotal']
-                    
-                    st.write(f"**Total Editado: R$ {total_at:.2f}**")
-                    c_sv, c_cn = st.columns(2)
-                    if c_sv.button("💾 SALVAR TUDO", key=f"sv_edit_{row['id']}", type="primary", use_container_width=True):
-                        df_f = ler_aba("Pedidos", ttl=0)
-                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "itens", "total"]] = [novo_nome, novo_end, json.dumps(st.session_state[temp_itens_key]), total_at]
-                        salvar_aba("Pedidos", df_f)
-                        st.session_state[edit_key] = False
-                        del st.session_state[temp_itens_key]
-                        st.session_state.reload_pedidos = True
-                        st.rerun()
-                    
-                    if c_cn.button("Sair sem salvar", key=f"cn_edit_{row['id']}", use_container_width=True):
-                        st.session_state[edit_key] = False
-                        if temp_itens_key in st.session_state: del st.session_state[temp_itens_key]
-                        st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                else:
-                    # Layout original de exibição e pesagem
-                    st.write(f"📍 {row['endereco']}")
-                    itens_m, total_m = json.loads(row['itens']), 0.0
-                    for i, it in enumerate(itens_m):
-                        c_i, c_v = st.columns([3.5, 1.4])
-                        if str(it['tipo']).upper() == "KG":
-                            val_in = c_v.number_input("R$", value=None, key=f"m_{row['id']}_{i}", label_visibility="collapsed", placeholder="0,00")
-                            v_dig = parse_float(val_in) if val_in is not None else 0.0
-                            it['subtotal'] = v_dig
-                            if v_dig > 0 and parse_float(it.get('preco', 0)) > 0:
-                                it['qtd'] = round(v_dig / parse_float(it['preco']), 3)
-                            c_i.markdown(f"⚖️ {limpar_texto(it['nome'])}")
-                        else:
-                            c_i.markdown(f"✅ {it['qtd']}x {limpar_texto(it['nome'])}")
-                            c_v.markdown(f"R$ {parse_float(it['subtotal']):.2f}")
-                        total_m += parse_float(it['subtotal'])
-                        st.divider()
-                    
-                    st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
-                    
-                    c_ok, c_pg, c_ed, c_pr, c_del = st.columns([1, 1, 1, 0.5, 0.5])
-                    
-                    if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
-                        df_f = ler_aba("Pedidos", ttl=0)
-                        idx_l = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
-                        if idx_l:
-                            idx = idx_l[0]
-                            df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
-                            salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
-                    
-                    if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
-                        df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
-                    
-                    if c_ed.button("✏️ Editar", key=f"btn_ed_{row['id']}"):
-                        st.session_state[edit_key] = True
-                        st.rerun()
-
-                    b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
-                    c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
-                    
-                    if c_del.button("🗑️", key=f"del_{row['id']}"):
-                        df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
+                # RESTAURADO: Colunas originais dos botões
+                c_ok, c_pg, c_pr, c_del = st.columns([1, 1, 0.5, 0.5])
+                if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
+                    df_f = ler_aba("Pedidos", ttl=0)
+                    idx_list = df_f.index[df_f["id"].astype(str) == str(row["id"])].tolist()
+                    if idx_list:
+                        idx = idx_list[0]
+                        df_f.at[idx, "status"], df_f.at[idx, "total"], df_f.at[idx, "itens"] = STATUS_PRONTO, total_m, json.dumps(itens_m)
+                        salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
+                if stpg != PAGAMENTO_PAGO and c_pg.button("💵 Pago", key=f"pg_{row['id']}"):
+                    df_f = ler_aba("Pedidos", ttl=0); df_f.loc[df_f["id"].astype(str) == str(row["id"]), "pagamento"] = PAGAMENTO_PAGO; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
+                b64 = gerar_b64_etiqueta(row['cliente'], row['endereco'], total_m, stpg)
+                c_pr.markdown(f'<a href="intent:base64,{b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;" class="btn-print">🖨️</a>', unsafe_allow_html=True)
+                if c_del.button("🗑️", key=f"del_{row['id']}"):
+                    df_f = ler_aba("Pedidos", ttl=0); df_f = df_f[df_f["id"].astype(str) != str(row["id"])]; salvar_aba("Pedidos", df_f); st.session_state.reload_pedidos = True; st.rerun()
 
 # --- 4. HISTÓRICO ---
 with aba4:
@@ -315,6 +247,7 @@ with aba6:
                 salvar_aba("Produtos", pd.concat([df_p, novo_p], ignore_index=True)); st.session_state.reload_produtos = True; st.rerun()
     if not df_produtos.empty:
         for idx, r in df_produtos.iterrows():
+            # RESTAURADO: Layout original de 6 colunas para edição
             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1, 1, 1, 0.5, 0.5])
             en, ep, et = c1.text_input("N", r['nome'], key=f"en_{idx}", label_visibility="collapsed").upper(), c2.number_input("R$", parse_float(r['preco']), key=f"ep_{idx}", label_visibility="collapsed"), c3.selectbox("T", ["UN", "KG"], index=0 if r['tipo']=="UN" else 1, key=f"et_{idx}", label_visibility="collapsed")
             est = c4.toggle("Ativo", value=(str(r['status']).lower() == "ativo"), key=f"es_{idx}")
