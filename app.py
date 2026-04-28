@@ -29,6 +29,7 @@ def aplicar_estilos():
                 .total-badge {background:#f0f2f6; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:10px; color:black;}
                 .m-total {font-size: 20px; font-weight: bold; margin-top: 10px; color: #1e1e1e;}
                 hr {margin: 0.5rem 0 !important; border-bottom: 1px solid rgba(49, 51, 63, 0.2) !important;}
+                .edit-section {background-color: #f9f9f9; padding: 15px; border-radius: 10px; border: 1px solid #eee; margin-top: 10px;}
             </style>
         """, unsafe_allow_html=True)
 
@@ -142,44 +143,71 @@ with aba3:
             with st.expander(f"👤 {row['cliente']} | {stpg}", expanded=True):
                 if row.get('obs'): st.warning(f"⚠️ {row['obs']}")
                 
-                # --- MODO EDIÇÃO ---
                 edit_key = f"edit_mode_{row['id']}"
                 if edit_key not in st.session_state: st.session_state[edit_key] = False
 
                 if st.session_state[edit_key]:
-                    # Campos de edição de Cabeçalho
-                    novo_nome = st.text_input("Editar Cliente", row['cliente'], key=f"edit_n_{row['id']}").upper()
-                    novo_end = st.text_input("Editar Endereço", row['endereco'], key=f"edit_e_{row['id']}").upper()
+                    st.markdown('<div class="edit-section">', unsafe_allow_html=True)
+                    novo_nome = st.text_input("Cliente", row['cliente'], key=f"edit_n_{row['id']}").upper()
+                    novo_end = st.text_input("Endereço", row['endereco'], key=f"edit_e_{row['id']}").upper()
                     
-                    st.write("---")
-                    itens_m = json.loads(row['itens'])
-                    novos_itens = []
-                    total_editado = 0.0
+                    itens_edit = json.loads(row['itens'])
+                    
+                    # --- ADICIONAR NOVO ITEM ---
+                    st.write("➕ **Adicionar novo item ao pedido:**")
+                    c_add_p, c_add_q, c_add_b = st.columns([2.5, 1, 1])
+                    prod_lista = ["-- Selecionar Produto --"] + sorted(df_produtos[df_produtos['status'].astype(str).str.lower() == "ativo"]['nome'].tolist())
+                    p_sel = c_add_p.selectbox("Produto", prod_lista, key=f"sel_extra_{row['id']}", label_visibility="collapsed")
+                    q_sel = c_add_q.number_input("Qtd", 1, step=1, key=f"qtd_extra_{row['id']}", label_visibility="collapsed")
+                    
+                    if c_add_b.button("Adicionar", key=f"btn_add_extra_{row['id']}"):
+                        if p_sel != "-- Selecionar Produto --":
+                            p_data = df_produtos[df_produtos['nome'] == p_sel].iloc[0]
+                            p_u = parse_float(p_data['preco'])
+                            novo_item = {
+                                "nome": p_sel, 
+                                "qtd": q_sel, 
+                                "preco": p_u, 
+                                "tipo": p_data['tipo'],
+                                "subtotal": 0.0 if str(p_data['tipo']).upper() == "KG" else (q_sel * p_u)
+                            }
+                            itens_edit.append(novo_item)
+                            # Atualiza o dataframe temporariamente para refletir na lista abaixo
+                            row['itens'] = json.dumps(itens_edit)
+                            st.rerun()
 
-                    # Editar quantidades dos itens atuais
-                    for i, it in enumerate(itens_m):
-                        c_n, c_q, c_r = st.columns([3, 1, 0.5])
-                        c_n.markdown(f"**{it['nome']}**")
-                        nova_qtd = c_q.number_input("Qtd", value=int(it['qtd']), min_value=0, key=f"ed_q_{row['id']}_{i}")
+                    st.write("---")
+                    # Listagem de itens para editar ou remover
+                    novos_itens_final = []
+                    total_editado = 0.0
+                    for i, it in enumerate(itens_edit):
+                        col_n, col_q, col_del = st.columns([3, 1, 0.5])
+                        col_n.markdown(f"**{it['nome']}** ({it['tipo']})")
+                        nova_q = col_q.number_input("Q", value=int(it['qtd']), min_value=0, key=f"ed_q_{row['id']}_{i}", label_visibility="collapsed")
                         
-                        if nova_qtd > 0:
-                            it['qtd'] = nova_qtd
-                            # Recalcula subtotal se não for KG (KG é feito na pesagem)
+                        if nova_q > 0:
+                            it['qtd'] = nova_q
                             if str(it['tipo']).upper() != "KG":
-                                it['subtotal'] = nova_qtd * parse_float(it['preco'])
-                            novos_itens.append(it)
+                                it['subtotal'] = nova_q * parse_float(it['preco'])
+                            novos_itens_final.append(it)
                             total_editado += parse_float(it['subtotal'])
                     
-                    if st.button("💾 Aplicar Alterações", key=f"save_edit_{row['id']}", type="primary"):
+                    c_sv, c_cn = st.columns(2)
+                    if c_sv.button("💾 SALVAR ALTERAÇÕES", key=f"save_edit_{row['id']}", type="primary", use_container_width=True):
                         df_f = ler_aba("Pedidos", ttl=0)
-                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "itens", "total"]] = [novo_nome, novo_end, json.dumps(novos_itens), total_editado]
+                        df_f.loc[df_f["id"].astype(str) == str(row["id"]), ["cliente", "endereco", "itens", "total"]] = [novo_nome, novo_end, json.dumps(novos_itens_final), total_editado]
                         salvar_aba("Pedidos", df_f)
                         st.session_state[edit_key] = False
                         st.session_state.reload_pedidos = True
                         st.rerun()
+                    
+                    if c_cn.button("Cancelar", key=f"cancel_edit_{row['id']}", use_container_width=True):
+                        st.session_state[edit_key] = False
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                 else:
-                    # Layout normal de exibição
+                    # Layout original de exibição
                     st.write(f"📍 {row['endereco']}")
                     itens_m, total_m = json.loads(row['itens']), 0.0
                     for i, it in enumerate(itens_m):
@@ -198,7 +226,6 @@ with aba3:
                         st.divider()
                     st.markdown(f"<div class='m-total'>TOTAL: R$ {total_m:.2f}</div>", unsafe_allow_html=True)
                     
-                    # Botões de Ação
                     c_ok, c_pg, c_ed, c_pr, c_del = st.columns([1, 1, 1, 0.5, 0.5])
                     
                     if c_ok.button("📦 OK", key=f"ok_{row['id']}"):
